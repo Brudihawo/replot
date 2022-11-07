@@ -1,10 +1,10 @@
 use phf::phf_map;
-use std::iter::{Peekable};
+use std::iter::{Enumerate, Peekable};
 use std::str::Chars;
 
 #[derive(Debug, PartialEq)]
 pub enum ParseError {
-    InvalidLiteralCharacter(char),
+    InvalidLiteralCharacter(char, Location),
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -27,6 +27,23 @@ pub enum TokenType {
     Literal(f64),
     Keyword(KeyWord),
     Name(String),
+}
+
+type Location = usize;
+
+#[derive(Debug, Clone)]
+pub struct Token {
+    tt: TokenType,
+    location: Location,
+}
+
+impl Token {
+    fn new(token_type: TokenType, location: Location) -> Self {
+        Token {
+            tt: token_type,
+            location,
+        }
+    }
 }
 
 struct Lexer<'a> {
@@ -71,10 +88,10 @@ impl<'a> Lexer<'a> {
         Self { text: text }
     }
 
-    fn parse_number(to_process: &mut Peekable<Chars>) -> Result<f64, ParseError> {
+    fn parse_number(to_process: &mut Peekable<Enumerate<Chars>>) -> Result<f64, ParseError> {
         let mut num: f64 = 0.0;
         let mut digit_after_dot: u32 = 0;
-        while let Some(digit_char) = to_process.next_if(|&x| !x.is_whitespace()) {
+        while let Some((pos, digit_char)) = to_process.next_if(|(_, x)| !x.is_whitespace()) {
             if digit_char.is_ascii_digit() {
                 if digit_after_dot == 0 {
                     num *= 10.0;
@@ -93,45 +110,48 @@ impl<'a> Lexer<'a> {
             } else if digit_char == '.' {
                 digit_after_dot += 1;
             } else {
-                return Err(ParseError::InvalidLiteralCharacter(digit_char));
+                return Err(ParseError::InvalidLiteralCharacter(digit_char, pos));
             }
         }
         Ok(num)
     }
 
-    fn tokenize(&mut self) -> Result<Vec<TokenType>, ParseError> {
-        let mut tokens: Vec<TokenType> = Vec::new();
-        let mut to_process = self.text.chars().peekable();
+    fn tokenize(&mut self) -> Result<Vec<Token>, ParseError> {
+        let mut tokens: Vec<Token> = Vec::new();
+        let mut to_process = self.text.chars().enumerate().peekable();
         loop {
             // skip while characters are whitespace
-            while let Some(_) = to_process.next_if(|&x| x.is_whitespace()) {}
+            while let Some(_) = to_process.next_if(|(_, x)| x.is_whitespace()) {}
 
-            if let Some(chr) = to_process.peek() {
+            if let Some((_, chr)) = to_process.peek() {
                 println!("New token starting with {}", chr);
             }
 
-            if let Some(c) = to_process.peek() {
-                if let Some(tok) = try_special_to_token(*c) {
+            if let Some(&(pos, c)) = to_process.peek() {
+                if let Some(tt) = try_special_to_token(c) {
                     // Special character
-                    tokens.push(tok);
+                    tokens.push(Token::new(tt, pos));
                     to_process.next();
                 } else {
                     if c.is_ascii_digit() {
-                        tokens.push(TokenType::Literal(Self::parse_number(&mut to_process)?));
+                        tokens.push(Token::new(
+                            TokenType::Literal(Self::parse_number(&mut to_process)?),
+                            pos,
+                        ));
                     } else {
                         let mut word = String::new();
-                        while let Some(x) = to_process.peek() {
-                            if !x.is_whitespace() && !is_special_char(*x) {
-                                word.push(*x);
+                        while let Some(&(_, x)) = to_process.peek() {
+                            if !x.is_whitespace() && !is_special_char(x) {
+                                word.push(x);
                                 to_process.next();
                             } else {
                                 break;
                             }
                         }
                         if let Some(keyword) = KEYWORDS.get(&word) {
-                            tokens.push(TokenType::Keyword(keyword.clone()));
+                            tokens.push(Token::new(TokenType::Keyword(keyword.clone()), pos));
                         } else {
-                            tokens.push(TokenType::Name(word));
+                            tokens.push(Token::new(TokenType::Name(word), pos));
                         }
                     }
                 }
@@ -146,6 +166,15 @@ impl<'a> Lexer<'a> {
 #[cfg(test)]
 mod test {
     use super::*;
+
+    fn parse_unwrap_to_types(to_parse: &str) -> Vec<TokenType> {
+        Lexer::new(to_parse)
+            .tokenize()
+            .expect("this is a test and it should not fail in parsing")
+            .iter()
+            .map(|x| x.tt.clone())
+            .collect()
+    }
 
     // #[macro_use]
     // use static_assertions as sa;
@@ -169,9 +198,7 @@ mod test {
         ];
 
         assert_eq!(
-            Lexer::new("= () + - * /  ^ name 1.0 plot table seq")
-                .tokenize()
-                .expect("this is a test and it should not fail in parsing"),
+            parse_unwrap_to_types("= () + - * /  ^ name 1.0 plot table seq"),
             expected
         );
     }
@@ -190,12 +217,7 @@ mod test {
             TokenType::Literal(1.0),
         ];
 
-        assert_eq!(
-            Lexer::new("=()+-*/name1 1.0")
-                .tokenize()
-                .expect("this is a test and it should not fail in parsing"),
-            expected
-        );
+        assert_eq!(parse_unwrap_to_types("=()+-*/name1 1.0"), expected);
     }
 
     #[test]
@@ -212,9 +234,7 @@ mod test {
         ];
 
         assert_eq!(
-            Lexer::new("f(x) = x + 1")
-                .tokenize()
-                .expect("this is a test and it should not fail in parsing"),
+            parse_unwrap_to_types("f(x) = x + 1"),
             expected
         );
     }
@@ -222,9 +242,7 @@ mod test {
     #[test]
     fn empty() {
         assert_eq!(
-            Lexer::new("")
-                .tokenize()
-                .expect("this is a test and it should not fail in parsing"),
+            parse_unwrap_to_types(""),
             vec![]
         );
     }
@@ -235,7 +253,7 @@ mod test {
             Lexer::new("1.0e")
                 .tokenize()
                 .expect_err("This test should give an error"),
-            ParseError::InvalidLiteralCharacter('e')
+            ParseError::InvalidLiteralCharacter('e', 3)
         );
     }
 }

@@ -1,13 +1,9 @@
 [package]
-name = "quickviz"
+name = "replot"
 version = "0.1.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
-[lib]
-name = "tokenizer"
-path = "src/tokenize.rs"
 
 [dependencies]
 phf = { version = "0.11.1", features = ["phf_macros", "macros"] }
