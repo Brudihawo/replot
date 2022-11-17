@@ -84,14 +84,14 @@ fn is_special_char(c: char) -> bool {
 }
 
 impl<'a> Lexer<'a> {
-    fn new(text: &'a str) -> Self {
-        Self { text: text }
+    pub fn new(text: &'a str) -> Self {
+        Self { text }
     }
 
     fn parse_number(to_process: &mut Peekable<Enumerate<Chars>>) -> Result<f64, ParseError> {
         let mut num: f64 = 0.0;
         let mut digit_after_dot: u32 = 0;
-        while let Some((pos, digit_char)) = to_process.next_if(|(_, x)| !x.is_whitespace()) {
+        while let Some((pos, digit_char)) = to_process.next_if(|(_, x)| !x.is_whitespace() && *x != ')' ) {
             if digit_char.is_ascii_digit() {
                 if digit_after_dot == 0 {
                     num *= 10.0;
@@ -254,6 +254,30 @@ mod test {
                 .tokenize()
                 .expect_err("This test should give an error"),
             ParseError::InvalidLiteralCharacter('e', 3)
+        );
+    }
+
+    #[test]
+    fn add() {
+        assert_eq!(
+            parse_unwrap_to_types("a + b"),
+            vec![
+                TokenType::Name("a".to_string()),
+                TokenType::Operator(OperatorType::Plus),
+                TokenType::Name("b".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn literal_brackets() {
+        assert_eq!(
+            parse_unwrap_to_types("(1.0)"),
+            vec![
+                TokenType::Lparen,
+                TokenType::Literal(1.0),
+                TokenType::Rparen,
+            ]
         );
     }
 }
