@@ -6,7 +6,8 @@ This is currently a work in progress!
 
 ## Roadmap
 - [x] Tokenizing
-- [ ] Syntax Tree Generation for lines
+- [x] Syntax Tree Generation for lines
+- [ ] REPL Basics
 - [ ] Evaluation of expressions
 - [ ] Storing of assignments
 - [ ] Generating sequences of data from functions
