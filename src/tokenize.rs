@@ -7,58 +7,65 @@ pub enum ParseError {
     InvalidLiteralCharacter(char, Location),
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum KeyWord {
     Plot,
     Table,
     Seq,
 }
 
-#[derive(Debug, PartialEq, Clone)]
-pub enum TokenType {
-    Equals,
-    Lparen,
-    Rparen,
+#[derive(Debug, PartialEq, Eq, Clone, Copy, PartialOrd, Ord)]
+pub enum OperatorType {
     Plus,
     Minus,
     Asterisk,
     Slash,
     Power,
+    Equals,
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub enum TokenType {
+    Operator(OperatorType),
+    Lparen,
+    Rparen,
     Literal(f64),
     Keyword(KeyWord),
     Name(String),
 }
 
-type Location = usize;
+impl Eq for TokenType {}
 
-#[derive(Debug, Clone)]
+pub type Location = usize;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Token {
-    tt: TokenType,
-    location: Location,
+    pub token_type: TokenType,
+    pub location: Location,
 }
 
 impl Token {
     fn new(token_type: TokenType, location: Location) -> Self {
         Token {
-            tt: token_type,
+            token_type,
             location,
         }
     }
 }
 
-struct Lexer<'a> {
+pub struct Lexer<'a> {
     text: &'a str,
 }
 
 const SPECIALCHARS: phf::Map<char, TokenType> = phf_map![
-    '=' => TokenType::Equals,
     '(' => TokenType::Lparen,
     ')' => TokenType::Rparen,
-    '+' => TokenType::Plus,
-    '-' => TokenType::Minus,
-    '*' => TokenType::Asterisk,
-    '/' => TokenType::Slash,
-    '^' => TokenType::Power,
+    '=' => TokenType::Operator(OperatorType::Equals),
+    '+' => TokenType::Operator(OperatorType::Plus),
+    '-' => TokenType::Operator(OperatorType::Minus),
+    '*' => TokenType::Operator(OperatorType::Asterisk),
+    '/' => TokenType::Operator(OperatorType::Slash),
+    '^' => TokenType::Operator(OperatorType::Power),
 ];
 
 const KEYWORDS: phf::Map<&'static str, KeyWord> = phf_map![
@@ -91,7 +98,9 @@ impl<'a> Lexer<'a> {
     fn parse_number(to_process: &mut Peekable<Enumerate<Chars>>) -> Result<f64, ParseError> {
         let mut num: f64 = 0.0;
         let mut digit_after_dot: u32 = 0;
-        while let Some((pos, digit_char)) = to_process.next_if(|(_, x)| !x.is_whitespace() && *x != ')' ) {
+        while let Some((pos, digit_char)) =
+            to_process.next_if(|(_, x)| !x.is_whitespace() && *x != ')')
+        {
             if digit_char.is_ascii_digit() {
                 if digit_after_dot == 0 {
                     num *= 10.0;
@@ -116,16 +125,12 @@ impl<'a> Lexer<'a> {
         Ok(num)
     }
 
-    fn tokenize(&mut self) -> Result<Vec<Token>, ParseError> {
+    pub fn tokenize(&mut self) -> Result<Vec<Token>, ParseError> {
         let mut tokens: Vec<Token> = Vec::new();
         let mut to_process = self.text.chars().enumerate().peekable();
         loop {
             // skip while characters are whitespace
             while let Some(_) = to_process.next_if(|(_, x)| x.is_whitespace()) {}
-
-            if let Some((_, chr)) = to_process.peek() {
-                println!("New token starting with {}", chr);
-            }
 
             if let Some(&(pos, c)) = to_process.peek() {
                 if let Some(tt) = try_special_to_token(c) {
@@ -164,7 +169,7 @@ impl<'a> Lexer<'a> {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use super::*;
 
     fn parse_unwrap_to_types(to_parse: &str) -> Vec<TokenType> {
@@ -172,7 +177,7 @@ mod test {
             .tokenize()
             .expect("this is a test and it should not fail in parsing")
             .iter()
-            .map(|x| x.tt.clone())
+            .map(|x| x.token_type.clone())
             .collect()
     }
 
@@ -182,14 +187,14 @@ mod test {
     #[test]
     fn all_types() {
         let expected = vec![
-            TokenType::Equals,
+            TokenType::Operator(OperatorType::Equals),
             TokenType::Lparen,
             TokenType::Rparen,
-            TokenType::Plus,
-            TokenType::Minus,
-            TokenType::Asterisk,
-            TokenType::Slash,
-            TokenType::Power,
+            TokenType::Operator(OperatorType::Plus),
+            TokenType::Operator(OperatorType::Minus),
+            TokenType::Operator(OperatorType::Asterisk),
+            TokenType::Operator(OperatorType::Slash),
+            TokenType::Operator(OperatorType::Power),
             TokenType::Name("name".to_string()),
             TokenType::Literal(1.0),
             TokenType::Keyword(KeyWord::Plot),
@@ -206,18 +211,19 @@ mod test {
     #[test]
     fn minimal_spaces() {
         let expected = vec![
-            TokenType::Equals,
+            TokenType::Operator(OperatorType::Equals),
             TokenType::Lparen,
             TokenType::Rparen,
-            TokenType::Plus,
-            TokenType::Minus,
-            TokenType::Asterisk,
-            TokenType::Slash,
+            TokenType::Operator(OperatorType::Plus),
+            TokenType::Operator(OperatorType::Minus),
+            TokenType::Operator(OperatorType::Asterisk),
+            TokenType::Operator(OperatorType::Slash),
+            TokenType::Operator(OperatorType::Power),
             TokenType::Name("name1".to_string()),
             TokenType::Literal(1.0),
         ];
 
-        assert_eq!(parse_unwrap_to_types("=()+-*/name1 1.0"), expected);
+        assert_eq!(parse_unwrap_to_types("=()+-*/^name1 1.0"), expected);
     }
 
     #[test]
@@ -227,24 +233,18 @@ mod test {
             TokenType::Lparen,
             TokenType::Name("x".to_string()),
             TokenType::Rparen,
-            TokenType::Equals,
+            TokenType::Operator(OperatorType::Equals),
             TokenType::Name("x".to_string()),
-            TokenType::Plus,
+            TokenType::Operator(OperatorType::Plus),
             TokenType::Literal(1.0),
         ];
 
-        assert_eq!(
-            parse_unwrap_to_types("f(x) = x + 1"),
-            expected
-        );
+        assert_eq!(parse_unwrap_to_types("f(x) = x + 1"), expected);
     }
 
     #[test]
     fn empty() {
-        assert_eq!(
-            parse_unwrap_to_types(""),
-            vec![]
-        );
+        assert_eq!(parse_unwrap_to_types(""), vec![]);
     }
 
     #[test]

@@ -6,5 +6,6 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+itertools = "0.10.5"
 phf = { version = "0.11.1", features = ["phf_macros", "macros"] }
 static_assertions = "1.1.0"
