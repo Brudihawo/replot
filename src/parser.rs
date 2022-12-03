@@ -452,7 +452,7 @@ mod tests {
     }
 
     #[test]
-    fn assignment() {
+    fn assignment_func() {
         let tokens = Lexer::new("f(p, q) = -p/2 + ((p/2)^2 - q)^(1 / 2)")
             .tokenize()
             .expect("this is a test and it should not fail in parsing");
@@ -462,6 +462,19 @@ mod tests {
         assert_eq!(
             output.simple_print(),
             "f(p, q) = (((- p) / 2) + ((((p / 2) ^ 2) - q) ^ (1 / 2)))"
+        );
+    }
+
+    fn assignment_simple() {
+        let tokens = Lexer::new("x = 1")
+            .tokenize()
+            .expect("this is a test and it should not fail in parsing");
+        let output = Parser::new(tokens)
+            .parse()
+            .expect("This should be parseable syntax");
+        assert_eq!(
+            output.simple_print(),
+            "x = 1"
         );
     }
     // TODO(Hawo): Need More Test Cases. These nested brackets seem to be trickier than i thought.

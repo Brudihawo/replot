@@ -27,8 +27,8 @@ impl EvalASTNode for Literal {
 
 #[derive(Debug)]
 pub struct Name {
-    name: String,
-    loc: Location,
+    pub name: String,
+    pub loc: Location,
 }
 
 impl Name {
@@ -43,8 +43,8 @@ impl Name {
 
 impl EvalASTNode for Name {
     fn eval(&self, known_values: &KnownValues) -> Result<f64, NameError> {
-        if let Some(val) = known_values.get(&self.name) {
-            Ok(val)
+        if let Some(val) = known_values.singles.get(&self.name) {
+            Ok(*val)
         } else {
             Err(NameError {
                 loc: self.loc,
@@ -60,15 +60,15 @@ impl EvalASTNode for Name {
 
 #[derive(Debug)]
 pub struct Function {
-    name: String,
+    pub loc: Location,
+    pub name: String,
     // (x, y, z)
     dependents: Vec<Name>,
-    loc: Location,
 }
 
 impl EvalASTNode for Function {
     fn eval(&self, known_values: &KnownValues) -> Result<f64, NameError> {
-        if let Some(ast) = known_values.get_func(&self.name) {
+        if let Some(ast) = known_values.functions.get(&self.name) {
             ast.eval(known_values)
         } else {
             Err(NameError {
