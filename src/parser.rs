@@ -450,6 +450,20 @@ mod tests {
             "(((- p) / 2) + ((((p / 2) ^ 2) - q) ^ (1 / 2)))"
         );
     }
+
+    #[test]
+    fn assignment() {
+        let tokens = Lexer::new("f(p, q) = -p/2 + ((p/2)^2 - q)^(1 / 2)")
+            .tokenize()
+            .expect("this is a test and it should not fail in parsing");
+        let output = Parser::new(tokens)
+            .parse()
+            .expect("This should be parseable syntax");
+        assert_eq!(
+            output.simple_print(),
+            "f(p, q) = (((- p) / 2) + ((((p / 2) ^ 2) - q) ^ (1 / 2)))"
+        );
+    }
     // TODO(Hawo): Need More Test Cases. These nested brackets seem to be trickier than i thought.
     // TODO(Hawo): I may need to work on selection of neighboring scopes, but for now it's fine
 }
