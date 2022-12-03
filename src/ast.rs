@@ -9,6 +9,7 @@ use std::fmt::Debug;
 
 pub struct KnownValues {
     singles: HashMap<String, f64>,
+    functions: HashMap<String, Box<dyn EvalASTNode>>,
     // multiples: HashMap<String, Vec<f64>>,
 }
 
@@ -16,6 +17,14 @@ impl KnownValues {
     fn get(&self, name: &String) -> Option<f64> {
         if let Some(val) = self.singles.get(name) {
             Some(*val)
+        } else {
+            None
+        }
+    }
+
+    fn get_func(&self, name: &String) -> Option<&Box<dyn EvalASTNode>> {
+        if let Some(val) = self.functions.get(name) {
+            Some(val)
         } else {
             None
         }

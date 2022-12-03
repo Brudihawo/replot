@@ -1,4 +1,4 @@
-use crate::ast::{NameError, KnownValues, EvalASTNode, Location};
+use crate::ast::{EvalASTNode, KnownValues, Location, NameError};
 
 #[derive(Debug)]
 pub struct Literal {
@@ -58,8 +58,37 @@ impl EvalASTNode for Name {
     }
 }
 
-struct Function {
+#[derive(Debug)]
+pub struct Function {
     name: String,
     // (x, y, z)
     dependents: Vec<Name>,
+    loc: Location,
+}
+
+impl EvalASTNode for Function {
+    fn eval(&self, known_values: &KnownValues) -> Result<f64, NameError> {
+        if let Some(ast) = known_values.get_func(&self.name) {
+            ast.eval(known_values)
+        } else {
+            Err(NameError {
+                loc: self.loc,
+                msg: format!("Name {} is not known", self.name),
+            })
+        }
+    }
+
+    fn simple_print(&self) -> String {
+        let var_list = if self.dependents.len() <= 1 {
+            self.dependents
+                .iter()
+                .skip(1)
+                .fold(self.dependents.first().unwrap().name.clone(), |acc, x| {
+                    format!("{}, {}", acc, x.name)
+                })
+        } else {
+            "".to_string()
+        };
+        format!("{}({})", self.name.clone(), var_list)
+    }
 }
