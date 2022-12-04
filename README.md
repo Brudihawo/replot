@@ -12,3 +12,6 @@ This is currently a work in progress!
 - [ ] Storing of assignments
 - [ ] Generating sequences of data from functions
 - [ ] Plotting
+
+## Short Term TODOs:
+- [ ] convert all `simple_print` function implementations to `std::fmt::Display` trait implementations

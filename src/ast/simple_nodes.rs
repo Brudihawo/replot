@@ -63,7 +63,7 @@ pub struct Function {
     pub loc: Location,
     pub name: String,
     // (x, y, z)
-    dependents: Vec<Name>,
+    pub dependents: Vec<Name>,
 }
 
 impl EvalASTNode for Function {
@@ -79,7 +79,7 @@ impl EvalASTNode for Function {
     }
 
     fn simple_print(&self) -> String {
-        let var_list = if self.dependents.len() <= 1 {
+        let var_list = if self.dependents.len() > 1 {
             self.dependents
                 .iter()
                 .skip(1)

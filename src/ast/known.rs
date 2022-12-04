@@ -94,9 +94,13 @@ impl KnownValues {
 
     pub fn set(&mut self, name: String, target: OwnedKnownValue) -> AssignmentResult {
         if let Some(_) = match target {
-            OwnedKnownValue::Single(val) => self.singles.insert(name, val).map(|_| ()),
-            OwnedKnownValue::Multiple(vals) => self.multiples.insert(name, vals).map(|_| ()),
-            OwnedKnownValue::Expression(expr) => self.functions.insert(name, expr).map(|_| ()),
+            OwnedKnownValue::Single(val) => self.singles.insert(name.clone(), val).map(|_| ()),
+            OwnedKnownValue::Multiple(vals) => {
+                self.multiples.insert(name.clone(), vals).map(|_| ())
+            }
+            OwnedKnownValue::Expression(expr) => {
+                self.functions.insert(name.clone(), expr).map(|_| ())
+            }
         } {
             AssignmentResult::Update(self.get(&name).unwrap())
         } else {

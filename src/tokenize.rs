@@ -42,14 +42,14 @@ pub type Location = usize;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Token {
     pub token_type: TokenType,
-    pub location: Location,
+    pub loc: Location,
 }
 
 impl Token {
     fn new(token_type: TokenType, location: Location) -> Self {
         Token {
             token_type,
-            location,
+            loc: location,
         }
     }
 }

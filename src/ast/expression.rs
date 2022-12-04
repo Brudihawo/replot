@@ -46,8 +46,8 @@ impl UnaryExpression {
     pub fn try_from(operator: &Token, operand: &Token) -> Result<Self, ()> {
         Ok(UnaryExpression {
             child: match &operand.token_type {
-                TokenType::Literal(value) => Box::new(Literal::new(*value, operand.location)),
-                TokenType::Name(name) => Box::new(Name::new(name.clone(), operand.location)),
+                TokenType::Literal(value) => Box::new(Literal::new(*value, operand.loc)),
+                TokenType::Name(name) => Box::new(Name::new(name.clone(), operand.loc)),
                 _ => return Err(()),
             },
             tipe: match &operator.token_type {

@@ -1,4 +1,7 @@
-use crate::ast::{BinaryExpression, EvalASTNode, Literal, Name, SyntaxError, UnaryExpression};
+use crate::ast::{
+    Assignment, AssignmentError, AssignmentLHS, AssignmentRHS, BinaryExpression, EvalASTNode,
+    Function, Literal, Name, SyntaxError, UnaryExpression,
+};
 use crate::tokenize::{OperatorType, Token, TokenType};
 use std::cmp::Ordering;
 
@@ -30,9 +33,9 @@ impl<'a> Ord for OperatorInfo<'a> {
             } else if self.op_type < other.op_type {
                 Ordering::Less
             } else {
-                if self.token.location > other.token.location {
+                if self.token.loc > other.token.loc {
                     Ordering::Greater
-                } else if self.token.location < other.token.location {
+                } else if self.token.loc < other.token.loc {
                     Ordering::Less
                 } else {
                     Ordering::Equal
@@ -45,6 +48,26 @@ impl<'a> Ord for OperatorInfo<'a> {
 impl<'a> PartialOrd for OperatorInfo<'a> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
+    }
+}
+
+#[derive(Debug)]
+pub enum ParseError {
+    Syntax(SyntaxError),
+    Assign(AssignmentError),
+}
+
+pub enum ParseResult {
+    Eval(Box<dyn EvalASTNode>),
+    Definition(Assignment),
+}
+
+impl ParseResult {
+    fn simple_print(&self) -> String {
+        match self {
+            Self::Eval(ast) => ast.simple_print(),
+            Self::Definition(ass) => ass.simple_print(),
+        }
     }
 }
 
@@ -88,21 +111,19 @@ impl<'a> Parser<'a> {
             && (range.last().unwrap().token.token_type == TokenType::Rparen)
     }
 
-    fn parse_expressions(&self, range: &[TokenInfo]) -> Result<Box<dyn EvalASTNode>, SyntaxError> {
+    fn parse_expression(&self, range: &[TokenInfo]) -> Result<Box<dyn EvalASTNode>, SyntaxError> {
         assert!(!range.is_empty());
-        println!("================================================================");
 
         // Remove Parens around current scope
         if Self::surrounded_by_parens(range) {
             // This has to be larger than 2 now
-            println!("Removing Surrounding Parens");
             if range.len() == 2 {
                 return Err(SyntaxError::EmptyParenScope(
-                    range[0].token.location,
-                    range[1].token.location,
+                    range[0].token.loc,
+                    range[1].token.loc,
                 ));
             }
-            return self.parse_expressions(&range[1..range.len() - 1]);
+            return self.parse_expression(&range[1..range.len() - 1]);
         }
 
         match range.len() {
@@ -112,12 +133,12 @@ impl<'a> Parser<'a> {
                 let token = &range[0].token;
                 match token.token_type {
                     TokenType::Name(ref name) => {
-                        return Ok(Name::new_box(name.clone(), token.location));
+                        return Ok(Name::new_box(name.clone(), token.loc));
                     }
                     TokenType::Literal(value) => {
-                        return Ok(Literal::new_box(value, token.location));
+                        return Ok(Literal::new_box(value, token.loc));
                     }
-                    _ => return Err(SyntaxError::CannotEvaluate(token.location)),
+                    _ => return Err(SyntaxError::CannotEvaluate(token.loc)),
                 }
             }
             2 => {
@@ -130,8 +151,8 @@ impl<'a> Parser<'a> {
                     )
                     .map_err(|_| {
                         SyntaxError::NonEvaluatableScope(
-                            range.first().unwrap().token.location,
-                            range.last().unwrap().token.location,
+                            range.first().unwrap().token.loc,
+                            range.last().unwrap().token.loc,
                         )
                     })?,
                 ));
@@ -142,47 +163,36 @@ impl<'a> Parser<'a> {
                 if let TokenType::Operator(op) = range[1].token.token_type {
                     let lhs: Box<dyn EvalASTNode> = match range[0].token.token_type {
                         TokenType::Name(ref name) => {
-                            Name::new_box(name.clone(), range[0].token.location)
+                            Name::new_box(name.clone(), range[0].token.loc)
                         }
-                        TokenType::Literal(value) => {
-                            Literal::new_box(value, range[0].token.location)
-                        }
-                        _ => {
-                            return Err(SyntaxError::InvalidBinaryOperand(range[0].token.location))
-                        }
+                        TokenType::Literal(value) => Literal::new_box(value, range[0].token.loc),
+                        _ => return Err(SyntaxError::InvalidBinaryOperand(range[0].token.loc)),
                     };
 
                     let rhs: Box<dyn EvalASTNode> = match range[2].token.token_type {
                         TokenType::Name(ref name) => {
-                            Name::new_box(name.clone(), range[2].token.location)
+                            Name::new_box(name.clone(), range[2].token.loc)
                         }
-                        TokenType::Literal(value) => {
-                            Literal::new_box(value, range[2].token.location)
-                        }
-                        _ => {
-                            return Err(SyntaxError::InvalidBinaryOperand(range[2].token.location))
-                        }
+                        TokenType::Literal(value) => Literal::new_box(value, range[2].token.loc),
+                        _ => return Err(SyntaxError::InvalidBinaryOperand(range[2].token.loc)),
                     };
 
                     Ok(Box::new(
                         BinaryExpression::new(op, lhs, rhs).expect("Equals are handled elsewhere"),
                     ))
                 } else {
-                    Err(SyntaxError::InvalidBinaryOperator(range[1].token.location))
+                    Err(SyntaxError::InvalidBinaryOperator(range[1].token.loc))
                 }
             }
             _ => {
                 // get operators
                 let mut begin = 0;
-                while range.first().unwrap().token.location
-                    >= self.operator_info[begin].token.location
-                {
+                while range.first().unwrap().token.loc >= self.operator_info[begin].token.loc {
                     begin += 1;
                 }
                 let mut end = begin;
                 while (end < self.operator_info.len())
-                    && (range.last().unwrap().token.location
-                        >= self.operator_info[end].token.location)
+                    && (range.last().unwrap().token.loc >= self.operator_info[end].token.loc)
                 {
                     end += 1;
                 }
@@ -190,51 +200,170 @@ impl<'a> Parser<'a> {
                 // get operator with lowest precedence.
                 // This will be the top node of the expression tree
                 let operator = self.operator_info[begin..end].iter().min().unwrap();
-
-                println!("Operator: {:?}", operator.op_type);
+                let depth = operator.depth;
 
                 let l_end = operator.index - range[0].index;
                 let mut l_first = l_end - 1;
-                let depth = operator.depth;
-
                 while (l_first > 0) && (range[l_first].depth >= depth) {
                     l_first -= 1;
                 }
-
-                println!(
-                    "Left: {}",
-                    range[l_first..l_end]
-                        .iter()
-                        .fold("".to_string(), |acc, x| format!("{}\n{:?}", acc, x))
-                );
-                let lhs = self.parse_expressions(&range[l_first..l_end])?;
-                println!("Left parsed: {}", lhs.simple_print());
+                let lhs = self.parse_expression(&range[l_first..l_end])?;
 
                 let r_first = operator.index - range[0].index + 1;
                 let mut r_end = r_first + 1;
-
                 while (r_end < range.len()) && (range[r_end].depth >= depth) {
                     r_end += 1;
                 }
-
-                println!(
-                    "Right: {}",
-                    range[r_first..r_end]
-                        .iter()
-                        .fold("".to_string(), |acc, x| format!("{}\n{:?}", acc, x))
-                );
-                println!("=======================================================");
-                let rhs = self.parse_expressions(&range[r_first..r_end])?;
-                println!("Right Parsed: {}", rhs.simple_print());
+                let rhs = self.parse_expression(&range[r_first..r_end])?;
 
                 BinaryExpression::new_box(*operator.op_type, lhs, rhs)
-                    .map_err(|_| SyntaxError::MisplacedEquals(operator.token.location))
+                    .map_err(|_| SyntaxError::MisplacedEquals(operator.token.loc))
                     .map(|x| x as Box<dyn EvalASTNode>)
             }
         }
     }
 
-    pub fn parse(&'a mut self) -> Result<Box<dyn EvalASTNode>, SyntaxError> {
+    fn parse_assignment_rhs(&self, tokens: &[TokenInfo]) -> Result<AssignmentRHS, SyntaxError> {
+        if tokens.len() == 1 {
+            match &tokens[0].token.token_type {
+                TokenType::Name(name) => Ok(AssignmentRHS::Name(Name {
+                    name: name.clone(),
+                    loc: tokens[0].token.loc,
+                })),
+                TokenType::Literal(val) => Ok(AssignmentRHS::Single(*val)),
+                _ => Err(SyntaxError::InvalidAssignmentRHS(tokens[0].token.loc)),
+            }
+        } else {
+            if let Some(rhs) = self.try_parse_function_head(tokens)? {
+                Ok(AssignmentRHS::Function(rhs))
+            } else {
+                Ok(AssignmentRHS::Expression(self.parse_expression(tokens)?))
+            }
+        }
+    }
+
+    fn try_parse_function_head(
+        &self,
+        tokens: &[TokenInfo],
+    ) -> Result<Option<Function>, SyntaxError> {
+        // Minimal function signature has length 4:  Ident ( var1 )
+        println!(
+            "tokens: {}",
+            tokens
+                .iter()
+                .fold("".to_string(), |acc, x| format!("{}\n{:?}", acc, x))
+        );
+        if tokens.len() < 4 {
+            Ok(None)
+        } else {
+            // Try to parse a function
+            if matches!(
+                tokens[0..3],
+                [
+                    TokenInfo {
+                        token: Token {
+                            token_type: TokenType::Name(_),
+                            ..
+                        },
+                        ..
+                    },
+                    TokenInfo {
+                        token: Token {
+                            token_type: TokenType::Lparen,
+                            ..
+                        },
+                        ..
+                    },
+                    TokenInfo {
+                        token: Token {
+                            token_type: TokenType::Name(_),
+                            ..
+                        },
+                        ..
+                    }
+                ]
+            ) {
+                let mut var_list = Vec::<Name>::new();
+                let mut name_next = true;
+                for (i, token_info) in tokens.iter().enumerate().skip(2) {
+                    match token_info.token.token_type {
+                        TokenType::Name(ref name) => {
+                            if i == tokens.len() - 1 {
+                                return Err(SyntaxError::NonterminatedParen(token_info.token.loc));
+                            }
+
+                            if !name_next {
+                                return Err(SyntaxError::ExpectedComma(token_info.token.loc));
+                            }
+                            var_list.push(Name {
+                                name: name.clone(),
+                                loc: token_info.token.loc,
+                            });
+                            name_next = false;
+                        }
+                        TokenType::Comma => {
+                            if i == tokens.len() - 1 {
+                                return Err(SyntaxError::NonterminatedParen(token_info.token.loc));
+                            }
+
+                            if name_next {
+                                return Err(SyntaxError::ExpectedName(token_info.token.loc));
+                            }
+                            name_next = true;
+                        }
+                        TokenType::Rparen => {
+                            if i != tokens.len() - 1 {
+                                if name_next {
+                                    return Err(SyntaxError::ExpectedName(token_info.token.loc));
+                                } else {
+                                    return Err(SyntaxError::ExpectedComma(token_info.token.loc));
+                                }
+                            }
+                        }
+                        _ => {
+                            return Err(SyntaxError::UnexpectedToken(token_info.token.clone()));
+                        }
+                    }
+                }
+                // Variables are assembled into list
+                return Ok(Some(Function {
+                    loc: tokens[0].token.loc,
+                    name: if let TokenType::Name(name) = &tokens[0].token.token_type {
+                        name.clone()
+                    } else {
+                        unreachable!()
+                    },
+                    dependents: var_list,
+                }));
+            }
+            Ok(None)
+        }
+    }
+
+    fn parse_assignment_lhs(&self, tokens: &[TokenInfo]) -> Result<AssignmentLHS, SyntaxError> {
+        match tokens.len() {
+            0 => Err(SyntaxError::EmptyAssignmentLHS),
+            1 => {
+                if let TokenType::Name(name) = &tokens[0].token.token_type {
+                    Ok(AssignmentLHS::Name(Name {
+                        name: name.clone(),
+                        loc: tokens[0].token.loc,
+                    }))
+                } else {
+                    Err(SyntaxError::InvalidAssignmentLHS(tokens[0].token.loc))
+                }
+            }
+            _ => {
+                if let Some(head) = self.try_parse_function_head(tokens)? {
+                    Ok(AssignmentLHS::Function(head))
+                } else {
+                    Err(SyntaxError::ExpectedFunctionDef(tokens[0].token.loc))
+                }
+            }
+        }
+    }
+
+    pub fn parse(&'a mut self) -> Result<ParseResult, ParseError> {
         let mut depth: usize = 0;
 
         self.token_info.reserve(self.tokens.len());
@@ -272,18 +401,38 @@ impl<'a> Parser<'a> {
             .filter(|x| *x.op_type == OperatorType::Equals)
             .count()
         {
-            0 => self.parse_expressions(&self.token_info), // we good
+            0 => Ok(ParseResult::Eval(
+                self.parse_expression(&self.token_info)
+                    .map_err(|x| ParseError::Syntax(x))?,
+            )),
             1 => {
-                todo!()
-            }   // we have an assignment expression
+                let equals = self
+                    .operator_info
+                    .iter()
+                    .filter(|x| *x.op_type == OperatorType::Equals)
+                    .next()
+                    .unwrap();
+
+                Ok(ParseResult::Definition(
+                    Assignment::from(
+                        self.parse_assignment_lhs(&self.token_info[..equals.index])
+                            .map_err(|x| ParseError::Syntax(x))?,
+                        self.parse_assignment_rhs(&self.token_info[equals.index + 1..])
+                            .map_err(|x| ParseError::Syntax(x))?,
+                        equals.token.loc,
+                    )
+                    .map_err(|x| ParseError::Assign(x))?,
+                ))
+            } // we have an assignment expression
+
             _ => {
-                return Err(SyntaxError::MultipleEquals(
+                return Err(ParseError::Syntax(SyntaxError::MultipleEquals(
                     self.operator_info
                         .iter()
                         .filter(|x| *x.op_type == OperatorType::Equals)
-                        .map(|x| x.token.location)
+                        .map(|x| x.token.loc)
                         .collect(),
-                ));
+                )));
             }
         }
     }
@@ -465,6 +614,7 @@ mod tests {
         );
     }
 
+    #[test]
     fn assignment_simple() {
         let tokens = Lexer::new("x = 1")
             .tokenize()
@@ -472,11 +622,9 @@ mod tests {
         let output = Parser::new(tokens)
             .parse()
             .expect("This should be parseable syntax");
-        assert_eq!(
-            output.simple_print(),
-            "x = 1"
-        );
+        assert_eq!(output.simple_print(), "x = 1");
     }
-    // TODO(Hawo): Need More Test Cases. These nested brackets seem to be trickier than i thought.
+    // TODO(Hawo): Need More Test Cases for Expressions. These nested brackets are tricky
     // TODO(Hawo): I may need to work on selection of neighboring scopes, but for now it's fine
+    // TODO(Hawo): Write more Test Cases for Functions
 }
