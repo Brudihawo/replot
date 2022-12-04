@@ -62,23 +62,6 @@ impl Assignment {
         }
     }
 
-    pub fn simple_print(&self) -> String {
-        let rhs_str = match &self.rhs {
-            AssignmentRHS::Single(val) => format!("{}", val),
-            AssignmentRHS::Multiple(seq) => seq.simple_print(),
-            AssignmentRHS::Name(name) => name.simple_print(),
-            AssignmentRHS::Function(fun) => fun.simple_print(),
-            AssignmentRHS::Expression(expr) => expr.simple_print(),
-        };
-
-        let name_str = match &self.lhs {
-            AssignmentLHS::Name(name) => name.simple_print(),
-            AssignmentLHS::Function(func) => func.simple_print(),
-        };
-
-        format!("{} = {}", name_str, rhs_str)
-    }
-
     /// Execute Consumes the Assignment
     fn execute(self, known_values: &mut KnownValues) -> Result<AssignmentResult, NameError> {
         // TODO: Do i want to allow replacement of values without permission?
@@ -115,5 +98,23 @@ impl Assignment {
                 }
             },
         ))
+    }
+}
+impl std::fmt::Display for Assignment {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let rhs_str = match &self.rhs {
+            AssignmentRHS::Single(val) => format!("{}", val),
+            AssignmentRHS::Multiple(seq) => format!("{}", seq),
+            AssignmentRHS::Name(name) => format!("{}", name),
+            AssignmentRHS::Function(fun) => format!("{}", fun),
+            AssignmentRHS::Expression(expr) => format!("{}", expr),
+        };
+
+        let name_str = match &self.lhs {
+            AssignmentLHS::Name(name) => format!("{}", name),
+            AssignmentLHS::Function(func) => format!("{}", func),
+        };
+
+        write!(f, "{} = {}", name_str, rhs_str)
     }
 }

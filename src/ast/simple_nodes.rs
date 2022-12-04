@@ -20,8 +20,11 @@ impl EvalASTNode for Literal {
     fn eval(&self, known_values: &KnownValues) -> Result<EvalResult, NameError> {
         Ok(EvalResult::Single(self.value))
     }
-    fn simple_print(&self) -> String {
-        format!("{}", self.value)
+}
+
+impl std::fmt::Display for Literal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        write!(f, "{}", self.value)
     }
 }
 
@@ -58,9 +61,11 @@ impl EvalASTNode for Name {
             })
         }
     }
+}
 
-    fn simple_print(&self) -> String {
-        self.name.clone()
+impl std::fmt::Display for Name {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.name)
     }
 }
 
@@ -83,8 +88,10 @@ impl EvalASTNode for Function {
             })
         }
     }
+}
 
-    fn simple_print(&self) -> String {
+impl std::fmt::Display for Function {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let var_list = if self.dependents.len() > 1 {
             self.dependents
                 .iter()
@@ -95,6 +102,6 @@ impl EvalASTNode for Function {
         } else {
             "".to_string()
         };
-        format!("{}({})", self.name.clone(), var_list)
+        write!(f, "{}({})", self.name, var_list)
     }
 }

@@ -4,6 +4,7 @@ use crate::ast::{
 };
 use crate::tokenize::{KeyWord, OperatorType, Token, TokenType};
 use std::cmp::Ordering;
+use std::fmt::Display;
 
 #[derive(Debug)]
 struct TokenInfo<'a> {
@@ -68,13 +69,13 @@ pub enum ParseResult {
     Definition(Assignment),
 }
 
-impl ParseResult {
-    fn simple_print(&self) -> String {
+impl std::fmt::Display for ParseResult {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Eval(ast) => ast.simple_print(),
-            Self::Definition(ass) => ass.simple_print(),
+            Self::Eval(ast) => ast.fmt(f),
+            Self::Definition(ass) => ass.fmt(f),
             Self::Command(cmd) => match cmd {
-                Command::Sequence(seq) => seq.simple_print(),
+                Command::Sequence(seq) => seq.fmt(f),
             },
         }
     }
@@ -548,7 +549,7 @@ mod tests {
         let output = Parser::new(tokens)
             .parse()
             .expect("This should be parseable syntax");
-        assert_eq!(output.simple_print(), "(a + b)");
+        assert_eq!(format!("{}", output), "(a + b)");
     }
 
     #[test]
@@ -559,7 +560,7 @@ mod tests {
         let output = Parser::new(tokens)
             .parse()
             .expect("This should be parseable syntax");
-        assert_eq!(output.simple_print(), "(+ b)");
+        assert_eq!(format!("{}", output), "(+ b)");
     }
 
     #[test]
@@ -570,7 +571,7 @@ mod tests {
         let output = Parser::new(tokens)
             .parse()
             .expect("This should be parseable syntax");
-        assert_eq!(output.simple_print(), "(- b)");
+        assert_eq!(format!("{}", output), "(- b)");
     }
 
     #[test]
@@ -581,7 +582,7 @@ mod tests {
         let output = Parser::new(tokens)
             .parse()
             .expect("This should be parseable syntax");
-        assert_eq!(output.simple_print(), "1");
+        assert_eq!(format!("{}", output), "1");
     }
 
     #[test]
@@ -592,7 +593,7 @@ mod tests {
         let output = Parser::new(tokens)
             .parse()
             .expect("This should be parseable syntax");
-        assert_eq!(output.simple_print(), "test");
+        assert_eq!(format!("{}", output), "test");
     }
 
     #[test]
@@ -603,7 +604,7 @@ mod tests {
         let output = Parser::new(tokens)
             .parse()
             .expect("This should be parseable syntax");
-        assert_eq!(output.simple_print(), "(a + (b * c))");
+        assert_eq!(format!("{}", output), "(a + (b * c))");
     }
 
     #[test]
@@ -614,7 +615,7 @@ mod tests {
         let output = Parser::new(tokens)
             .parse()
             .expect("This should be parseable syntax");
-        assert_eq!(output.simple_print(), "((a + b) * c)");
+        assert_eq!(format!("{}", output), "((a + b) * c)");
     }
 
     #[test]
@@ -625,7 +626,7 @@ mod tests {
         let output = Parser::new(tokens)
             .parse()
             .expect("This should be parseable syntax");
-        assert_eq!(output.simple_print(), "(a + (b + c))");
+        assert_eq!(format!("{}", output), "(a + (b + c))");
     }
 
     #[test]
@@ -636,7 +637,7 @@ mod tests {
         let output = Parser::new(tokens)
             .parse()
             .expect("This should be parseable syntax");
-        assert_eq!(output.simple_print(), "((a / 2) - (c / 3))");
+        assert_eq!(format!("{}", output), "((a / 2) - (c / 3))");
     }
 
     #[test]
@@ -647,7 +648,7 @@ mod tests {
         let output = Parser::new(tokens)
             .parse()
             .expect("This should be parseable syntax");
-        assert_eq!(output.simple_print(), "(a ^ b)");
+        assert_eq!(format!("{}", output), "(a ^ b)");
     }
 
     #[test]
@@ -658,7 +659,7 @@ mod tests {
         let output = Parser::new(tokens)
             .parse()
             .expect("This should be parseable syntax");
-        assert_eq!(output.simple_print(), "(a ^ (b + c))");
+        assert_eq!(format!("{}", output), "(a ^ (b + c))");
     }
 
     #[test]
@@ -669,7 +670,7 @@ mod tests {
         let output = Parser::new(tokens)
             .parse()
             .expect("This should be parseable syntax");
-        assert_eq!(output.simple_print(), "((a / 2) ^ (c / 3))");
+        assert_eq!(format!("{}", output), "((a / 2) ^ (c / 3))");
     }
 
     #[test]
@@ -680,7 +681,7 @@ mod tests {
         let output = Parser::new(tokens)
             .parse()
             .expect("This should be parseable syntax");
-        assert_eq!(output.simple_print(), "(a + (b - (c * (d / (e ^ f)))))");
+        assert_eq!(format!("{}", output), "(a + (b - (c * (d / (e ^ f)))))");
     }
 
     #[test]
@@ -692,7 +693,7 @@ mod tests {
             .parse()
             .expect("This should be parseable syntax");
         assert_eq!(
-            output.simple_print(),
+            format!("{}", output),
             "(((- p) / 2) + ((((p / 2) ^ 2) - q) ^ (1 / 2)))"
         );
     }
@@ -706,7 +707,7 @@ mod tests {
             .parse()
             .expect("This should be parseable syntax");
         assert_eq!(
-            output.simple_print(),
+            format!("{}", output),
             "f(p, q) = (((- p) / 2) + ((((p / 2) ^ 2) - q) ^ (1 / 2)))"
         );
     }
@@ -719,7 +720,7 @@ mod tests {
         let output = Parser::new(tokens)
             .parse()
             .expect("This should be parseable syntax");
-        assert_eq!(output.simple_print(), "x = 1");
+        assert_eq!(format!("{}", output), "x = 1");
     }
 
     #[test]
@@ -730,7 +731,7 @@ mod tests {
         let output = Parser::new(tokens)
             .parse()
             .expect("This should be parseable syntax");
-        assert_eq!(output.simple_print(), "x = seq(0, 1, 10)");
+        assert_eq!(format!("{}", output), "x = seq(0, 1, 10)");
     }
 
     #[test]
@@ -741,7 +742,7 @@ mod tests {
         let output = Parser::new(tokens)
             .parse()
             .expect("This should be parseable syntax");
-        assert_eq!(output.simple_print(), "seq(0, 1, 10)");
+        assert_eq!(format!("{}", output), "seq(0, 1, 10)");
     }
     // TODO(Hawo): Need More Test Cases for Expressions. These nested brackets are tricky
     // TODO(Hawo): I may need to work on selection of neighboring scopes, but for now it's fine

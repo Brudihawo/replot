@@ -154,7 +154,6 @@ impl EvalResult {
     }
 }
 
-pub trait EvalASTNode: Debug {
+pub trait EvalASTNode: Debug + std::fmt::Display {
     fn eval(&self, known_values: &KnownValues) -> Result<EvalResult, NameError>;
-    fn simple_print(&self) -> String;
 }

@@ -74,10 +74,14 @@ impl EvalASTNode for BinaryExpression {
             BinXprType::Power => Ok(lval.pow(rval)),
         }
     }
-    fn simple_print(&self) -> String {
-        format!(
+}
+
+impl std::fmt::Display for BinaryExpression {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
             "({} {} {})",
-            self.left.simple_print(),
+            self.left,
             match &self.tipe {
                 BinXprType::Add => "+",
                 BinXprType::Subtract => "-",
@@ -85,7 +89,7 @@ impl EvalASTNode for BinaryExpression {
                 BinXprType::Divide => "/",
                 BinXprType::Power => "^",
             },
-            self.right.simple_print()
+            self.right,
         )
     }
 }
@@ -98,15 +102,18 @@ impl EvalASTNode for UnaryExpression {
             UnXprType::RedundantPlus => Ok(cval),
         }
     }
+}
 
-    fn simple_print(&self) -> String {
-        format!(
+impl std::fmt::Display for UnaryExpression {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
             "({} {})",
             match &self.tipe {
                 UnXprType::Negate => "-",
                 UnXprType::RedundantPlus => "+",
             },
-            self.child.simple_print()
+            self.child,
         )
     }
 }

@@ -18,8 +18,10 @@ impl Seq {
             .collect();
         Ok(EvalResult::Multiple(vals))
     }
+}
 
-    pub fn simple_print(&self) -> String {
-        format!("seq({}, {}, {})", self.start, self.end, self.n)
+impl std::fmt::Display for Seq {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "seq({}, {}, {})", self.start, self.end, self.n)
     }
 }
