@@ -29,6 +29,7 @@ pub enum TokenType {
     Operator(OperatorType),
     Lparen,
     Rparen,
+    Comma,
     Literal(f64),
     Keyword(KeyWord),
     Name(String),
@@ -60,6 +61,7 @@ pub struct Lexer<'a> {
 const SPECIALCHARS: phf::Map<char, TokenType> = phf_map![
     '(' => TokenType::Lparen,
     ')' => TokenType::Rparen,
+    ',' => TokenType::Comma,
     '=' => TokenType::Operator(OperatorType::Equals),
     '+' => TokenType::Operator(OperatorType::Plus),
     '-' => TokenType::Operator(OperatorType::Minus),
@@ -99,7 +101,7 @@ impl<'a> Lexer<'a> {
         let mut num: f64 = 0.0;
         let mut digit_after_dot: u32 = 0;
         while let Some((pos, digit_char)) =
-            to_process.next_if(|(_, x)| !x.is_whitespace() && *x != ')')
+            to_process.next_if(|(_, x)| !x.is_whitespace() && !is_special_char(*x))
         {
             if digit_char.is_ascii_digit() {
                 if digit_after_dot == 0 {
@@ -200,10 +202,11 @@ mod tests {
             TokenType::Keyword(KeyWord::Plot),
             TokenType::Keyword(KeyWord::Table),
             TokenType::Keyword(KeyWord::Seq),
+            TokenType::Comma,
         ];
 
         assert_eq!(
-            parse_unwrap_to_types("= () + - * /  ^ name 1.0 plot table seq"),
+            parse_unwrap_to_types("= () + - * /  ^ name 1.0 plot table seq ,"),
             expected
         );
     }
@@ -221,9 +224,10 @@ mod tests {
             TokenType::Operator(OperatorType::Power),
             TokenType::Name("name1".to_string()),
             TokenType::Literal(1.0),
+            TokenType::Comma,
         ];
 
-        assert_eq!(parse_unwrap_to_types("=()+-*/^name1 1.0"), expected);
+        assert_eq!(parse_unwrap_to_types("=()+-*/^name1 1.0,"), expected);
     }
 
     #[test]
@@ -279,5 +283,47 @@ mod tests {
                 TokenType::Rparen,
             ]
         );
+    }
+
+    #[test]
+    fn literal_specialchars() {
+        let expected = vec![TokenType::Literal(1.0), TokenType::Lparen];
+        assert_eq!(parse_unwrap_to_types("1.0("), expected);
+
+        let expected = vec![TokenType::Literal(1.0), TokenType::Rparen];
+        assert_eq!(parse_unwrap_to_types("1.0)"), expected);
+
+        let expected = vec![
+            TokenType::Literal(1.0),
+            TokenType::Operator(OperatorType::Power),
+        ];
+        assert_eq!(parse_unwrap_to_types("1.0^"), expected);
+
+        let expected = vec![
+            TokenType::Literal(1.0),
+            TokenType::Operator(OperatorType::Plus),
+        ];
+        assert_eq!(parse_unwrap_to_types("1.0+"), expected);
+
+        let expected = vec![
+            TokenType::Literal(1.0),
+            TokenType::Operator(OperatorType::Minus),
+        ];
+        assert_eq!(parse_unwrap_to_types("1.0-"), expected);
+
+        let expected = vec![
+            TokenType::Literal(1.0),
+            TokenType::Operator(OperatorType::Asterisk),
+        ];
+        assert_eq!(parse_unwrap_to_types("1.0*"), expected);
+
+        let expected = vec![
+            TokenType::Literal(1.0),
+            TokenType::Operator(OperatorType::Slash),
+        ];
+        assert_eq!(parse_unwrap_to_types("1.0/"), expected);
+
+        let expected = vec![TokenType::Literal(1.0), TokenType::Comma];
+        assert_eq!(parse_unwrap_to_types("1.0,"), expected);
     }
 }
