@@ -1,9 +1,9 @@
-use crate::ast::{EvalASTNode, KnownValues, Location, NameError};
+use crate::ast::{EvalASTNode, EvalResult, KnownValue, KnownValues, Location, NameError};
 
 #[derive(Debug)]
 pub struct Literal {
-    value: f64,
-    loc: Location,
+    pub value: f64,
+    pub loc: Location,
 }
 
 impl Literal {
@@ -17,8 +17,8 @@ impl Literal {
 }
 
 impl EvalASTNode for Literal {
-    fn eval(&self, known_values: &KnownValues) -> Result<f64, NameError> {
-        Ok(self.value)
+    fn eval(&self, known_values: &KnownValues) -> Result<EvalResult, NameError> {
+        Ok(EvalResult::Single(self.value))
     }
     fn simple_print(&self) -> String {
         format!("{}", self.value)
@@ -42,9 +42,15 @@ impl Name {
 }
 
 impl EvalASTNode for Name {
-    fn eval(&self, known_values: &KnownValues) -> Result<f64, NameError> {
-        if let Some(val) = known_values.singles.get(&self.name) {
-            Ok(*val)
+    fn eval(&self, known_values: &KnownValues) -> Result<EvalResult, NameError> {
+        if let Some(known_value) = known_values.get(&self.name) {
+            match known_value {
+                KnownValue::Single(val) => Ok(EvalResult::Single(val)),
+                KnownValue::Multiple(seq) => Ok(seq.eval()?),
+                KnownValue::Expression(_) => {
+                    unreachable!("This is a Name and should never resolve to a function")
+                }
+            }
         } else {
             Err(NameError {
                 loc: self.loc,
@@ -67,7 +73,7 @@ pub struct Function {
 }
 
 impl EvalASTNode for Function {
-    fn eval(&self, known_values: &KnownValues) -> Result<f64, NameError> {
+    fn eval(&self, known_values: &KnownValues) -> Result<EvalResult, NameError> {
         if let Some(ast) = known_values.functions.get(&self.name) {
             ast.eval(known_values)
         } else {

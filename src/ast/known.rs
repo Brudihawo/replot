@@ -1,17 +1,16 @@
-use super::EvalASTNode;
-use super::*;
+use super::{AssignmentResult, EvalASTNode, Seq};
 
 use std::collections::HashMap;
 
 pub struct KnownValues {
     pub singles: HashMap<String, f64>,
     pub functions: HashMap<String, Box<dyn EvalASTNode>>,
-    pub multiples: HashMap<String, Vec<f64>>,
+    pub multiples: HashMap<String, Seq>,
 }
 
 pub enum KnownValue<'a> {
     Single(f64),
-    Multiple(&'a Vec<f64>),
+    Multiple(&'a Seq),
     Expression(&'a Box<dyn EvalASTNode>),
 }
 
@@ -21,15 +20,6 @@ impl<'a> Into<f64> for KnownValue<'a> {
             return val;
         }
         panic!("KnownValue is not of variant Single, so it cannot be cast to f64");
-    }
-}
-
-impl<'a> Into<&'a Vec<f64>> for KnownValue<'a> {
-    fn into(self) -> &'a Vec<f64> {
-        if let KnownValue::Multiple(vals) = self {
-            return vals;
-        }
-        panic!("KnownValue is not of variant Multiple, so it cannot be cast to f64");
     }
 }
 
@@ -44,7 +34,7 @@ impl<'a> Into<&'a Box<dyn EvalASTNode>> for KnownValue<'a> {
 
 pub enum OwnedKnownValue {
     Single(f64),
-    Multiple(Vec<f64>),
+    Multiple(Seq),
     Expression(Box<dyn EvalASTNode>),
 }
 
@@ -54,15 +44,6 @@ impl Into<f64> for OwnedKnownValue {
             return val;
         }
         panic!("OwnedKnownValue is not of variant Single, so it cannot be cast to f64");
-    }
-}
-
-impl Into<Vec<f64>> for OwnedKnownValue {
-    fn into(self) -> Vec<f64> {
-        if let OwnedKnownValue::Multiple(vals) = self {
-            return vals;
-        }
-        panic!("OwnedKnownValue is not of variant Multiple, so it cannot be cast to f64");
     }
 }
 
@@ -86,7 +67,7 @@ impl KnownValues {
         }
 
         if let Some(multiples) = self.multiples.get(name) {
-            return Some(KnownValue::Multiple(&multiples));
+            return Some(KnownValue::Multiple(multiples.clone()));
         }
 
         None

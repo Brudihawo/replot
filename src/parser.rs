@@ -1,8 +1,8 @@
 use crate::ast::{
     Assignment, AssignmentError, AssignmentLHS, AssignmentRHS, BinaryExpression, EvalASTNode,
-    Function, Literal, Name, SyntaxError, UnaryExpression,
+    Function, Literal, Name, Seq, SyntaxError, UnaryExpression,
 };
-use crate::tokenize::{OperatorType, Token, TokenType};
+use crate::tokenize::{KeyWord, OperatorType, Token, TokenType};
 use std::cmp::Ordering;
 
 #[derive(Debug)]
@@ -57,8 +57,14 @@ pub enum ParseError {
     Assign(AssignmentError),
 }
 
+pub enum Command {
+    Sequence(Seq),
+    // TODO(Hawo): Plot
+}
+
 pub enum ParseResult {
     Eval(Box<dyn EvalASTNode>),
+    Command(Command),
     Definition(Assignment),
 }
 
@@ -67,6 +73,9 @@ impl ParseResult {
         match self {
             Self::Eval(ast) => ast.simple_print(),
             Self::Definition(ass) => ass.simple_print(),
+            Self::Command(cmd) => match cmd {
+                Command::Sequence(seq) => seq.simple_print(),
+            },
         }
     }
 }
@@ -104,17 +113,13 @@ impl<'a> Parser<'a> {
                 }
             }
         });
-        println!("{}", matched_parens);
 
         (matched_parens == 0)
             && (range.first().unwrap().token.token_type == TokenType::Lparen)
             && (range.last().unwrap().token.token_type == TokenType::Rparen)
     }
 
-    fn parse_expression(&self, range: &[TokenInfo]) -> Result<Box<dyn EvalASTNode>, SyntaxError> {
-        assert!(!range.is_empty());
-
-        // Remove Parens around current scope
+    fn strip_parens(range: &'a [TokenInfo<'a>]) -> Result<&'a [TokenInfo<'a>], SyntaxError> {
         if Self::surrounded_by_parens(range) {
             // This has to be larger than 2 now
             if range.len() == 2 {
@@ -123,8 +128,19 @@ impl<'a> Parser<'a> {
                     range[1].token.loc,
                 ));
             }
-            return self.parse_expression(&range[1..range.len() - 1]);
+            return Ok(&range[1..range.len() - 1]);
+        } else {
+            return Ok(&range);
         }
+    }
+
+    fn parse_expression(
+        &self,
+        range: &'a [TokenInfo<'a>],
+    ) -> Result<Box<dyn EvalASTNode>, SyntaxError> {
+        assert!(!range.is_empty());
+
+        let range = Self::strip_parens(range)?;
 
         match range.len() {
             1 => {
@@ -223,6 +239,54 @@ impl<'a> Parser<'a> {
         }
     }
 
+    fn try_parse_keyword(
+        &self,
+        tokens: &'a [TokenInfo<'a>],
+    ) -> Result<Option<Command>, SyntaxError> {
+        let keywords: Vec<&TokenInfo> = tokens
+            .iter()
+            .filter(|x| matches!(&x.token.token_type, TokenType::Keyword(_),))
+            .collect();
+        match keywords.len() {
+            0 => Ok(None),
+            1 => {
+                if !tokens[0].index == 0 {
+                    Err(SyntaxError::InvalidKeywordPosition(tokens[0].token.loc))
+                } else {
+                    if let TokenType::Keyword(kw) = tokens[0].token.token_type.clone() {
+                        match kw {
+                            KeyWord::Plot => unimplemented!("plotting is not implemented yet"),
+                            KeyWord::Seq => {
+                                let var_list =
+                                    self.try_parse_num_list(Self::strip_parens(&tokens[1..])?)?;
+                                match var_list.len() {
+                                    0..=2 => {
+                                        // we know var_list has at least length 1, otherwise
+                                        // self.try_parse_var_list throws an error
+                                        Err(SyntaxError::NotEnoughArguments(
+                                            var_list.last().unwrap().loc,
+                                        ))
+                                    }
+                                    3 => Ok(Some(Command::Sequence(Seq::new(
+                                        var_list[0].value,
+                                        var_list[1].value,
+                                        var_list[2].value as usize,
+                                    )))),
+                                    _ => Err(SyntaxError::TooManyArguments(var_list[3].loc)),
+                                }
+                            }
+                        }
+                    } else {
+                        unreachable!("We filtered by this before")
+                    }
+                }
+            }
+            _ => Err(SyntaxError::MultipleKeywords(
+                tokens.iter().map(|tok_inf| tok_inf.token.loc).collect(),
+            )),
+        }
+    }
+
     fn parse_assignment_rhs(&self, tokens: &[TokenInfo]) -> Result<AssignmentRHS, SyntaxError> {
         if tokens.len() == 1 {
             match &tokens[0].token.token_type {
@@ -234,25 +298,91 @@ impl<'a> Parser<'a> {
                 _ => Err(SyntaxError::InvalidAssignmentRHS(tokens[0].token.loc)),
             }
         } else {
-            if let Some(rhs) = self.try_parse_function_head(tokens)? {
-                Ok(AssignmentRHS::Function(rhs))
+            if let Some(cmd) = self.try_parse_keyword(tokens)? {
+                match cmd {
+                    Command::Sequence(seq) => Ok(AssignmentRHS::Multiple(seq)),
+                }
             } else {
-                Ok(AssignmentRHS::Expression(self.parse_expression(tokens)?))
+                if let Some(rhs) = self.try_parse_function_head(tokens)? {
+                    Ok(AssignmentRHS::Function(rhs))
+                } else {
+                    Ok(AssignmentRHS::Expression(self.parse_expression(tokens)?))
+                }
             }
         }
     }
 
+    /// Parse a variable list from a list of tokens without surrounding parens
+    /// Input: a, b, c
+    /// Output: Vec<Name>(a, b, c)
+    fn try_parse_num_list(&self, tokens: &[TokenInfo]) -> Result<Vec<Literal>, SyntaxError> {
+        let mut var_list = Vec::<Literal>::new();
+        let mut name_next = true;
+        for (i, token_info) in tokens.iter().enumerate() {
+            match token_info.token.token_type {
+                TokenType::Literal(ref lit) => {
+                    if !name_next {
+                        return Err(SyntaxError::ExpectedComma(token_info.token.loc));
+                    }
+
+                    var_list.push(Literal {
+                        value: *lit,
+                        loc: token_info.token.loc,
+                    });
+                    name_next = false;
+                }
+                TokenType::Comma => {
+                    if i == tokens.len() - 1 || name_next {
+                        return Err(SyntaxError::ExpectedName(token_info.token.loc));
+                    }
+                    name_next = true;
+                }
+                _ => {
+                    return Err(SyntaxError::UnexpectedToken(token_info.token.clone()));
+                }
+            }
+        }
+        Ok(var_list)
+    }
+
+    /// Parse a variable list from a list of tokens without surrounding parens
+    /// Input: a, b, c
+    /// Output: Vec<Name>(a, b, c)
+    fn try_parse_var_list(&self, tokens: &[TokenInfo]) -> Result<Vec<Name>, SyntaxError> {
+        let mut var_list = Vec::<Name>::new();
+        let mut name_next = true;
+        for (i, token_info) in tokens.iter().enumerate() {
+            match token_info.token.token_type {
+                TokenType::Name(ref name) => {
+                    if !name_next {
+                        return Err(SyntaxError::ExpectedComma(token_info.token.loc));
+                    }
+
+                    var_list.push(Name {
+                        name: name.clone(),
+                        loc: token_info.token.loc,
+                    });
+                    name_next = false;
+                }
+                TokenType::Comma => {
+                    if i == tokens.len() - 1 || name_next {
+                        return Err(SyntaxError::ExpectedName(token_info.token.loc));
+                    }
+                    name_next = true;
+                }
+                _ => {
+                    return Err(SyntaxError::UnexpectedToken(token_info.token.clone()));
+                }
+            }
+        }
+        Ok(var_list)
+    }
+
     fn try_parse_function_head(
         &self,
-        tokens: &[TokenInfo],
+        tokens: &'a [TokenInfo],
     ) -> Result<Option<Function>, SyntaxError> {
         // Minimal function signature has length 4:  Ident ( var1 )
-        println!(
-            "tokens: {}",
-            tokens
-                .iter()
-                .fold("".to_string(), |acc, x| format!("{}\n{:?}", acc, x))
-        );
         if tokens.len() < 4 {
             Ok(None)
         } else {
@@ -283,49 +413,7 @@ impl<'a> Parser<'a> {
                     }
                 ]
             ) {
-                let mut var_list = Vec::<Name>::new();
-                let mut name_next = true;
-                for (i, token_info) in tokens.iter().enumerate().skip(2) {
-                    match token_info.token.token_type {
-                        TokenType::Name(ref name) => {
-                            if i == tokens.len() - 1 {
-                                return Err(SyntaxError::NonterminatedParen(token_info.token.loc));
-                            }
-
-                            if !name_next {
-                                return Err(SyntaxError::ExpectedComma(token_info.token.loc));
-                            }
-                            var_list.push(Name {
-                                name: name.clone(),
-                                loc: token_info.token.loc,
-                            });
-                            name_next = false;
-                        }
-                        TokenType::Comma => {
-                            if i == tokens.len() - 1 {
-                                return Err(SyntaxError::NonterminatedParen(token_info.token.loc));
-                            }
-
-                            if name_next {
-                                return Err(SyntaxError::ExpectedName(token_info.token.loc));
-                            }
-                            name_next = true;
-                        }
-                        TokenType::Rparen => {
-                            if i != tokens.len() - 1 {
-                                if name_next {
-                                    return Err(SyntaxError::ExpectedName(token_info.token.loc));
-                                } else {
-                                    return Err(SyntaxError::ExpectedComma(token_info.token.loc));
-                                }
-                            }
-                        }
-                        _ => {
-                            return Err(SyntaxError::UnexpectedToken(token_info.token.clone()));
-                        }
-                    }
-                }
-                // Variables are assembled into list
+                let var_list = self.try_parse_var_list(Self::strip_parens(&tokens[1..])?)?;
                 return Ok(Some(Function {
                     loc: tokens[0].token.loc,
                     name: if let TokenType::Name(name) = &tokens[0].token.token_type {
@@ -401,10 +489,19 @@ impl<'a> Parser<'a> {
             .filter(|x| *x.op_type == OperatorType::Equals)
             .count()
         {
-            0 => Ok(ParseResult::Eval(
-                self.parse_expression(&self.token_info)
-                    .map_err(|x| ParseError::Syntax(x))?,
-            )),
+            0 => {
+                if let Some(cmd) = self
+                    .try_parse_keyword(&self.token_info)
+                    .map_err(|e| ParseError::Syntax(e))?
+                {
+                    Ok(ParseResult::Command(cmd))
+                } else {
+                    Ok(ParseResult::Eval(
+                        self.parse_expression(&self.token_info)
+                            .map_err(|x| ParseError::Syntax(x))?,
+                    ))
+                }
+            }
             1 => {
                 let equals = self
                     .operator_info
@@ -623,6 +720,28 @@ mod tests {
             .parse()
             .expect("This should be parseable syntax");
         assert_eq!(output.simple_print(), "x = 1");
+    }
+
+    #[test]
+    fn assignment_seq() {
+        let tokens = Lexer::new("x = seq(0, 1, 10)")
+            .tokenize()
+            .expect("this is a test and it should not fail in parsing");
+        let output = Parser::new(tokens)
+            .parse()
+            .expect("This should be parseable syntax");
+        assert_eq!(output.simple_print(), "x = seq(0, 1, 10)");
+    }
+
+    #[test]
+    fn seq() {
+        let tokens = Lexer::new("seq(0, 1, 10)")
+            .tokenize()
+            .expect("this is a test and it should not fail in parsing");
+        let output = Parser::new(tokens)
+            .parse()
+            .expect("This should be parseable syntax");
+        assert_eq!(output.simple_print(), "seq(0, 1, 10)");
     }
     // TODO(Hawo): Need More Test Cases for Expressions. These nested brackets are tricky
     // TODO(Hawo): I may need to work on selection of neighboring scopes, but for now it's fine

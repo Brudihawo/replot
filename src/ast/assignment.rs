@@ -1,10 +1,10 @@
 use super::{
-    EvalASTNode, Function, KnownValue, KnownValues, Location, Name, NameError, OwnedKnownValue,
+    EvalASTNode, Function, KnownValue, KnownValues, Location, Name, NameError, OwnedKnownValue, Seq,
 };
 
 pub enum AssignmentRHS {
     Single(f64),
-    Multiple(Vec<f64>),
+    Multiple(Seq),
     Expression(Box<dyn EvalASTNode>),
 
     Name(Name),
@@ -65,25 +65,7 @@ impl Assignment {
     pub fn simple_print(&self) -> String {
         let rhs_str = match &self.rhs {
             AssignmentRHS::Single(val) => format!("{}", val),
-            AssignmentRHS::Multiple(vals) => {
-                assert!(vals.len() > 1);
-                if vals.len() < 6 {
-                    format!(
-                        "{}",
-                        vals.iter()
-                            .skip(1)
-                            .fold(format!("{}", vals[0]), |acc, x| format!("{}, {}", acc, x))
-                    )
-                } else {
-                    format!(
-                        "[{}, {}, ... {}, {}]",
-                        vals[0],
-                        vals[1],
-                        vals[vals.len() - 2],
-                        vals[vals.len() - 1]
-                    )
-                }
-            }
+            AssignmentRHS::Multiple(seq) => seq.simple_print(),
             AssignmentRHS::Name(name) => name.simple_print(),
             AssignmentRHS::Function(fun) => fun.simple_print(),
             AssignmentRHS::Expression(expr) => expr.simple_print(),

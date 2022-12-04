@@ -63,7 +63,7 @@ impl UnaryExpression {
 }
 
 impl EvalASTNode for BinaryExpression {
-    fn eval(&self, known_values: &KnownValues) -> Result<f64, NameError> {
+    fn eval(&self, known_values: &KnownValues) -> Result<EvalResult, NameError> {
         let lval = self.left.eval(known_values)?;
         let rval = self.right.eval(known_values)?;
         match &self.tipe {
@@ -71,7 +71,7 @@ impl EvalASTNode for BinaryExpression {
             BinXprType::Subtract => Ok(lval - rval),
             BinXprType::Multiply => Ok(lval * rval),
             BinXprType::Divide => Ok(lval / rval),
-            BinXprType::Power => Ok(lval.powf(rval)),
+            BinXprType::Power => Ok(lval.pow(rval)),
         }
     }
     fn simple_print(&self) -> String {
@@ -91,7 +91,7 @@ impl EvalASTNode for BinaryExpression {
 }
 
 impl EvalASTNode for UnaryExpression {
-    fn eval(&self, known_values: &KnownValues) -> Result<f64, NameError> {
+    fn eval(&self, known_values: &KnownValues) -> Result<EvalResult, NameError> {
         let cval = self.child.eval(known_values)?;
         match &self.tipe {
             UnXprType::Negate => Ok(-cval),

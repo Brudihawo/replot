@@ -10,7 +10,6 @@ pub enum ParseError {
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum KeyWord {
     Plot,
-    Table,
     Seq,
 }
 
@@ -72,7 +71,6 @@ const SPECIALCHARS: phf::Map<char, TokenType> = phf_map![
 
 const KEYWORDS: phf::Map<&'static str, KeyWord> = phf_map![
     "plot" => KeyWord::Plot,
-    "table" => KeyWord::Table,
     "seq" => KeyWord::Seq
 ];
 
@@ -200,13 +198,12 @@ mod tests {
             TokenType::Name("name".to_string()),
             TokenType::Literal(1.0),
             TokenType::Keyword(KeyWord::Plot),
-            TokenType::Keyword(KeyWord::Table),
             TokenType::Keyword(KeyWord::Seq),
             TokenType::Comma,
         ];
 
         assert_eq!(
-            parse_unwrap_to_types("= () + - * /  ^ name 1.0 plot table seq ,"),
+            parse_unwrap_to_types("= () + - * /  ^ name 1.0 plot seq ,"),
             expected
         );
     }
