@@ -57,6 +57,14 @@ impl Into<Box<dyn EvalASTNode>> for OwnedKnownValue {
 }
 
 impl KnownValues {
+    pub fn new() -> Self {
+        Self {
+            functions: HashMap::new(),
+            singles: HashMap::new(),
+            multiples: HashMap::new(),
+        }
+    }
+
     pub fn get(&self, name: &String) -> Option<KnownValue> {
         if let Some(val) = self.singles.get(name) {
             return Some(KnownValue::Single(*val));
