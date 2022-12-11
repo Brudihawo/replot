@@ -1,5 +1,6 @@
 use super::{
-    EvalASTNode, Function, KnownValue, KnownValues, Location, Name, NameError, OwnedKnownValue, Seq,
+    EvalASTNode, Function, KnownValue, KnownValues, Location, Name, NameError, OwnedKnownValue,
+    Seq, SyntaxError,
 };
 
 pub enum AssignmentRHS {
@@ -27,24 +28,21 @@ pub struct Assignment {
 }
 
 #[derive(Debug)]
-pub enum AssignmentError {
-    ExpectedFuncAssign(Location),
-    ExpectedNameAssign(Location),
-}
+pub enum AssignmentError {}
 
 impl Assignment {
     pub fn from(
         lhs: AssignmentLHS,
         rhs: AssignmentRHS,
         loc: Location,
-    ) -> Result<Self, AssignmentError> {
+    ) -> Result<Self, SyntaxError> {
         match lhs {
             AssignmentLHS::Name(_) => {
                 if !matches!(
                     rhs,
                     AssignmentRHS::Name(_) | AssignmentRHS::Single(_) | AssignmentRHS::Multiple(_)
                 ) {
-                    Err(AssignmentError::ExpectedNameAssign(loc))
+                    Err(SyntaxError::ExpectedNameAssign(loc))
                 } else {
                     Ok(Self { lhs, rhs })
                 }
@@ -54,7 +52,7 @@ impl Assignment {
                     rhs,
                     AssignmentRHS::Function(_) | AssignmentRHS::Expression(_)
                 ) {
-                    Err(AssignmentError::ExpectedFuncAssign(loc))
+                    Err(SyntaxError::ExpectedFuncAssign(loc))
                 } else {
                     Ok(Self { lhs, rhs })
                 }
@@ -63,7 +61,7 @@ impl Assignment {
     }
 
     /// Execute Consumes the Assignment
-    fn execute(self, known_values: &mut KnownValues) -> Result<AssignmentResult, NameError> {
+    pub fn execute(self, known_values: &mut KnownValues) -> Result<AssignmentResult, NameError> {
         // TODO: Do i want to allow replacement of values without permission?
         let name_str = match self.lhs {
             AssignmentLHS::Name(name) => name.name,

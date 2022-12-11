@@ -3,7 +3,7 @@ use std::iter::{Enumerate, Peekable};
 use std::str::Chars;
 
 #[derive(Debug, PartialEq)]
-pub enum ParseError {
+pub enum LexerError {
     InvalidLiteralCharacter(char, Location),
 }
 
@@ -95,7 +95,7 @@ impl<'a> Lexer<'a> {
         Self { text }
     }
 
-    fn parse_number(to_process: &mut Peekable<Enumerate<Chars>>) -> Result<f64, ParseError> {
+    fn parse_number(to_process: &mut Peekable<Enumerate<Chars>>) -> Result<f64, LexerError> {
         let mut num: f64 = 0.0;
         let mut digit_after_dot: u32 = 0;
         while let Some((pos, digit_char)) =
@@ -119,13 +119,13 @@ impl<'a> Lexer<'a> {
             } else if digit_char == '.' {
                 digit_after_dot += 1;
             } else {
-                return Err(ParseError::InvalidLiteralCharacter(digit_char, pos));
+                return Err(LexerError::InvalidLiteralCharacter(digit_char, pos));
             }
         }
         Ok(num)
     }
 
-    pub fn tokenize(&mut self) -> Result<Vec<Token>, ParseError> {
+    pub fn tokenize(&mut self) -> Result<Vec<Token>, LexerError> {
         let mut tokens: Vec<Token> = Vec::new();
         let mut to_process = self.text.chars().enumerate().peekable();
         loop {
@@ -254,7 +254,7 @@ mod tests {
             Lexer::new("1.0e")
                 .tokenize()
                 .expect_err("This test should give an error"),
-            ParseError::InvalidLiteralCharacter('e', 3)
+            LexerError::InvalidLiteralCharacter('e', 3)
         );
     }
 

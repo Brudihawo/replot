@@ -35,6 +35,8 @@ pub enum SyntaxError {
     ExpectedFunctionDef(Location),
     NotEnoughArguments(Location),
     TooManyArguments(Location),
+    ExpectedFuncAssign(Location),
+    ExpectedNameAssign(Location),
 }
 
 #[derive(Debug)]
@@ -42,6 +44,7 @@ pub enum AstBuildError {
     WrongOperator,
 }
 
+#[derive(Debug)]
 pub struct NameError {
     msg: String,
     loc: Location,
@@ -63,6 +66,8 @@ impl std::ops::Add for EvalResult {
             Self::Multiple(lhs) => match rhs {
                 Self::Single(rhs) => Self::Multiple(lhs.iter().map(|l| rhs + l).collect()),
                 Self::Multiple(rhs) => {
+                    // TODO(Hawo): Make this a nice error that we can use
+                    assert!(rhs.len() == lhs.len());
                     Self::Multiple(lhs.iter().zip(rhs.iter()).map(|(l, r)| l + r).collect())
                 }
             },

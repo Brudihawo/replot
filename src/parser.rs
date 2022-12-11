@@ -52,12 +52,6 @@ impl<'a> PartialOrd for OperatorInfo<'a> {
     }
 }
 
-#[derive(Debug)]
-pub enum ParseError {
-    Syntax(SyntaxError),
-    Assign(AssignmentError),
-}
-
 pub enum Command {
     Sequence(Seq),
     // TODO(Hawo): Plot
@@ -81,7 +75,7 @@ impl std::fmt::Display for ParseResult {
     }
 }
 
-struct Parser<'a> {
+pub struct Parser<'a> {
     tokens: Vec<Token>,
     token_info: Vec<TokenInfo<'a>>,
     operator_info: Vec<OperatorInfo<'a>>,
@@ -202,6 +196,9 @@ impl<'a> Parser<'a> {
                 }
             }
             _ => {
+                if let Some(func) = self.try_parse_function_head(&range)? {
+                    return Ok(Box::new(func));
+                }
                 // get operators
                 let mut begin = 0;
                 while range.first().unwrap().token.loc >= self.operator_info[begin].token.loc {
@@ -452,7 +449,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    pub fn parse(&'a mut self) -> Result<ParseResult, ParseError> {
+    pub fn parse(&'a mut self) -> Result<ParseResult, SyntaxError> {
         let mut depth: usize = 0;
 
         self.token_info.reserve(self.tokens.len());
@@ -491,16 +488,10 @@ impl<'a> Parser<'a> {
             .count()
         {
             0 => {
-                if let Some(cmd) = self
-                    .try_parse_keyword(&self.token_info)
-                    .map_err(|e| ParseError::Syntax(e))?
-                {
+                if let Some(cmd) = self.try_parse_keyword(&self.token_info)? {
                     Ok(ParseResult::Command(cmd))
                 } else {
-                    Ok(ParseResult::Eval(
-                        self.parse_expression(&self.token_info)
-                            .map_err(|x| ParseError::Syntax(x))?,
-                    ))
+                    Ok(ParseResult::Eval(self.parse_expression(&self.token_info)?))
                 }
             }
             1 => {
@@ -511,26 +502,21 @@ impl<'a> Parser<'a> {
                     .next()
                     .unwrap();
 
-                Ok(ParseResult::Definition(
-                    Assignment::from(
-                        self.parse_assignment_lhs(&self.token_info[..equals.index])
-                            .map_err(|x| ParseError::Syntax(x))?,
-                        self.parse_assignment_rhs(&self.token_info[equals.index + 1..])
-                            .map_err(|x| ParseError::Syntax(x))?,
-                        equals.token.loc,
-                    )
-                    .map_err(|x| ParseError::Assign(x))?,
-                ))
+                Ok(ParseResult::Definition(Assignment::from(
+                    self.parse_assignment_lhs(&self.token_info[..equals.index])?,
+                    self.parse_assignment_rhs(&self.token_info[equals.index + 1..])?,
+                    equals.token.loc,
+                )?))
             } // we have an assignment expression
 
             _ => {
-                return Err(ParseError::Syntax(SyntaxError::MultipleEquals(
+                return Err(SyntaxError::MultipleEquals(
                     self.operator_info
                         .iter()
                         .filter(|x| *x.op_type == OperatorType::Equals)
                         .map(|x| x.token.loc)
                         .collect(),
-                )));
+                ));
             }
         }
     }
