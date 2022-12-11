@@ -14,4 +14,4 @@ This is currently a work in progress!
 - [ ] Plotting
 
 ## Short Term TODOs:
-- [ ] convert all `simple_print` function implementations to `std::fmt::Display` trait implementations
+- [x] convert all `simple_print` function implementations to `std::fmt::Display` trait implementations
