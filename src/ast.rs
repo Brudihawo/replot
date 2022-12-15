@@ -66,7 +66,7 @@ impl std::ops::Add for EvalResult {
             Self::Multiple(lhs) => match rhs {
                 Self::Single(rhs) => Self::Multiple(lhs.iter().map(|l| rhs + l).collect()),
                 Self::Multiple(rhs) => {
-                    // TODO(Hawo): Make this a nice error that we can use
+                    // TODO(Hawo): Make this a nice error that we can use, probably check before
                     assert!(rhs.len() == lhs.len());
                     Self::Multiple(lhs.iter().zip(rhs.iter()).map(|(l, r)| l + r).collect())
                 }
