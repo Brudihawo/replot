@@ -11,7 +11,7 @@ pub(crate) use seq::*;
 pub(crate) use simple_nodes::*;
 
 use crate::tokenize::{Location, OperatorType, Token, TokenType};
-use std::fmt::Debug;
+use std::fmt::{self, Debug};
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum SyntaxError {
@@ -48,6 +48,179 @@ pub enum AstBuildError {
 pub struct NameError {
     msg: String,
     loc: Location,
+}
+
+// Evaluation input generated from name nodes
+pub struct EvalInput<'a> {
+    pub name: &'a String,
+    pub value: EvalResult,
+}
+
+pub struct Eval<'a> {
+    pub result: EvalResult,
+    pub inputs: Vec<EvalInput<'a>>,
+}
+
+impl<'a> std::ops::Neg for Eval<'a> {
+    type Output = Eval<'a>;
+
+    fn neg(self) -> Self::Output {
+        Self::Output {
+            result: -self.result,
+            inputs: self.inputs,
+        }
+    }
+}
+
+impl<'a> std::ops::Add for Eval<'a> {
+    type Output = Eval<'a>;
+
+    fn add(mut self, mut rhs: Self) -> Self::Output {
+        let mut out = Self::Output {
+            result: self.result + rhs.result,
+            inputs: Vec::<EvalInput>::new(),
+        };
+        out.inputs.append(&mut self.inputs);
+        out.inputs.append(&mut rhs.inputs);
+        out
+    }
+}
+
+impl<'a> std::ops::Sub for Eval<'a> {
+    type Output = Eval<'a>;
+
+    fn sub(mut self, mut rhs: Self) -> Self::Output {
+        let mut out = Self::Output {
+            result: self.result - rhs.result,
+            inputs: Vec::new(),
+        };
+        out.inputs.append(&mut self.inputs);
+        out.inputs.append(&mut rhs.inputs);
+        out
+    }
+}
+
+impl<'a> std::ops::Mul for Eval<'a> {
+    type Output = Eval<'a>;
+
+    fn mul(mut self, mut rhs: Self) -> Self::Output {
+        let mut out = Self::Output {
+            result: self.result * rhs.result,
+            inputs: Vec::new(),
+        };
+        out.inputs.append(&mut self.inputs);
+        out.inputs.append(&mut rhs.inputs);
+        out
+    }
+}
+
+impl<'a> std::ops::Div for Eval<'a> {
+    type Output = Eval<'a>;
+
+    fn div(mut self, mut rhs: Self) -> Self::Output {
+        let mut out = Self::Output {
+            result: self.result / rhs.result,
+            inputs: Vec::new(),
+        };
+        out.inputs.append(&mut self.inputs);
+        out.inputs.append(&mut rhs.inputs);
+        out
+    }
+}
+
+impl<'a> Eval<'a> {
+    const RESULT_STR: &str = "result";
+    const INDEX_STR: &str = "index";
+
+    fn new(result: EvalResult, input: EvalInput<'a>) -> Self {
+        match result {
+            EvalResult::Single(_) => {
+                assert!(matches!(input.value, EvalResult::Single(_)))
+            }
+            EvalResult::Multiple(ref res) => {
+                match input.value {
+                    EvalResult::Single(_) => {}
+                    // TODO(Hawo): This has to change if we implement multiple values in functions
+                    EvalResult::Multiple(ref seq) => assert!(seq.len() == res.len()),
+                }
+            }
+        }
+
+        Self {
+            result,
+            inputs: vec![input],
+        }
+    }
+
+    fn pow(mut self, mut rhs: Self) -> Self {
+        let mut out = Self {
+            result: self.result.pow(rhs.result),
+            inputs: Vec::new(),
+        };
+        out.inputs.append(&mut self.inputs);
+        out.inputs.append(&mut rhs.inputs);
+        out
+    }
+}
+
+impl std::fmt::Display for Eval<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // line with variable names
+        write!(f, "{}", Self::INDEX_STR)?;
+        for input in self.inputs.iter() {
+            write!(f, ", {}", input.name)?
+        }
+        write!(f, ", {}\n", Self::RESULT_STR)?;
+
+        match &self.result {
+            EvalResult::Single(val) => {
+                // this is going to be a 2-line result like:
+                // index, x, y, z, result
+                // 0, 2, 3, 4, 68
+                write!(f, "{}", 0)?;
+                for input in self.inputs.iter() {
+                    match input.value {
+                        EvalResult::Single(in_val) => write!(f, ", {}", in_val)?,
+                        EvalResult::Multiple(_) => {
+                            unreachable!("Single value EvalResults cannot have multiples as input!")
+                        }
+                    }
+                }
+                // TODO: Do we want this newline to be here?
+                write!(f, ", {}\n", val)
+            }
+            EvalResult::Multiple(vals) => {
+                let mut index = 0;
+                while index < vals.len() {
+                    write!(f, "{}", index)?;
+                    for input in self.inputs.iter() {
+                        match &input.value {
+                            EvalResult::Single(in_val) => write!(f, ", {}", in_val)?,
+                            EvalResult::Multiple(in_vals) => write!(
+                                f,
+                                ", {}",
+                                in_vals
+                                    .get(index)
+                                    .expect("We are inside the range by definition")
+                            )?,
+                        }
+                    }
+                    write!(f, ", {}\n", vals[index])?;
+                    index += 1;
+                }
+                Ok(())
+            }
+        }
+    }
+}
+
+impl From<&Literal> for Eval<'_> {
+    fn from(lit: &Literal) -> Self {
+        Self {
+            result: EvalResult::Single(lit.value),
+            inputs: Vec::new(),
+        }
+    }
 }
 
 pub enum EvalResult {
@@ -159,6 +332,6 @@ impl EvalResult {
     }
 }
 
-pub trait EvalASTNode: Debug + std::fmt::Display {
-    fn eval(&self, known_values: &KnownValues) -> Result<EvalResult, NameError>;
+pub trait EvalASTNode: Debug + fmt::Display {
+    fn eval<'a>(&'a self, known_values: &'a KnownValues) -> Result<Eval<'a>, NameError>;
 }

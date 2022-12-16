@@ -1,4 +1,6 @@
-use crate::ast::{EvalASTNode, EvalResult, KnownValue, KnownValues, Location, NameError};
+use crate::ast::{
+    Eval, EvalASTNode, EvalInput, EvalResult, KnownValue, KnownValues, Location, NameError,
+};
 
 #[derive(Debug)]
 pub struct Literal {
@@ -17,8 +19,8 @@ impl Literal {
 }
 
 impl EvalASTNode for Literal {
-    fn eval(&self, known_values: &KnownValues) -> Result<EvalResult, NameError> {
-        Ok(EvalResult::Single(self.value))
+    fn eval(&self, known_values: &KnownValues) -> Result<Eval, NameError> {
+        Ok(Eval::from(self))
     }
 }
 
@@ -45,11 +47,23 @@ impl Name {
 }
 
 impl EvalASTNode for Name {
-    fn eval(&self, known_values: &KnownValues) -> Result<EvalResult, NameError> {
-        if let Some(known_value) = known_values.get(&self.name) {
-            match known_value {
-                KnownValue::Single(val) => Ok(EvalResult::Single(val)),
-                KnownValue::Multiple(seq) => Ok(seq.eval()?),
+    fn eval<'a>(&'a self, known_values: &'a KnownValues) -> Result<Eval, NameError> {
+        if let Some(known) = known_values.get(&self.name) {
+            match known.value {
+                KnownValue::Single(val) => Ok(Eval::new(
+                    EvalResult::Single(val),
+                    EvalInput {
+                        name: known.name,
+                        value: EvalResult::Single(val),
+                    },
+                )),
+                KnownValue::Multiple(seq) => Ok(Eval::new(
+                    seq.eval()?,
+                    EvalInput {
+                        name: known.name,
+                        value: seq.eval()?,
+                    },
+                )),
                 KnownValue::Expression(_) => {
                     unreachable!("This is a Name and should never resolve to a function")
                 }
@@ -78,7 +92,7 @@ pub struct Function {
 }
 
 impl EvalASTNode for Function {
-    fn eval(&self, known_values: &KnownValues) -> Result<EvalResult, NameError> {
+    fn eval<'a>(&'a self, known_values: &'a KnownValues) -> Result<Eval<'a>, NameError> {
         if let Some(ast) = known_values.functions.get(&self.name) {
             ast.eval(known_values)
         } else {

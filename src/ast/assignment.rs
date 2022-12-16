@@ -1,6 +1,6 @@
 use super::{
-    EvalASTNode, Function, KnownValue, KnownValues, Location, Name, NameError, OwnedKnownValue,
-    Seq, SyntaxError,
+    EvalASTNode, Function, Known, KnownValues, Location, Name, NameError, OwnedKnownValue, Seq,
+    SyntaxError,
 };
 
 pub enum AssignmentRHS {
@@ -18,8 +18,8 @@ pub enum AssignmentLHS {
 }
 
 pub enum AssignmentResult<'a> {
-    Set(KnownValue<'a>),
-    Update(KnownValue<'a>),
+    Set(Known<'a>),
+    Update(Known<'a>),
 }
 
 pub struct Assignment {
@@ -76,7 +76,7 @@ impl Assignment {
                 AssignmentRHS::Expression(expr) => OwnedKnownValue::Expression(expr),
                 AssignmentRHS::Name(name) => {
                     if let Some(known) = known_values.get(&name.name) {
-                        OwnedKnownValue::Single(known.into())
+                        OwnedKnownValue::Single(known.value.into())
                     } else {
                         return Err(NameError {
                             msg: format!("Name '{}' not found", name.name),
@@ -86,7 +86,7 @@ impl Assignment {
                 }
                 AssignmentRHS::Function(func) => {
                     if let Some(known) = known_values.get(&func.name) {
-                        OwnedKnownValue::Single(known.into())
+                        OwnedKnownValue::Single(known.value.into())
                     } else {
                         return Err(NameError {
                             msg: format!("Name '{}' not found", func.name),

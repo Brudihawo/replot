@@ -30,17 +30,7 @@ impl Repl {
 
     fn handle_eval(&self, ast: Box<dyn EvalASTNode>) {
         match ast.eval(&self.knowns) {
-            Ok(ev_res) => match ev_res {
-                crate::ast::EvalResult::Single(val) => {
-                    println!("{} = {}", ast, val)
-                }
-                crate::ast::EvalResult::Multiple(vals) => {
-                    println!("Evaluating {}:", ast);
-                    for (i, val) in vals.iter().enumerate() {
-                        println!("{}, {}", i, val)
-                    }
-                }
-            },
+            Ok(eval) => print!("{}", eval),
             Err(err) => println!("Error during Evaluation: {:?}", err),
         }
     }
@@ -63,11 +53,17 @@ impl Repl {
     }
 
     fn handle_lexer_error(&self, err: LexerError) {
-        println!("Error during Tokenization of Line '{}': {:?}", self.cur_line, err);
+        println!(
+            "Error during Tokenization of Line '{}': {:?}",
+            self.cur_line, err
+        );
     }
 
     fn handle_parser_error(&self, err: SyntaxError) {
-        println!("Error during Parsing of Line '{}', {:?}", self.cur_line, err);
+        println!(
+            "Error during Parsing of Line '{}', {:?}",
+            self.cur_line, err
+        );
     }
 
     pub fn parse_and_process(&mut self) {

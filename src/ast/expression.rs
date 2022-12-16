@@ -63,7 +63,7 @@ impl UnaryExpression {
 }
 
 impl EvalASTNode for BinaryExpression {
-    fn eval(&self, known_values: &KnownValues) -> Result<EvalResult, NameError> {
+    fn eval<'a>(&'a self, known_values: &'a KnownValues) -> Result<Eval, NameError> {
         let lval = self.left.eval(known_values)?;
         let rval = self.right.eval(known_values)?;
         match &self.tipe {
@@ -95,7 +95,7 @@ impl std::fmt::Display for BinaryExpression {
 }
 
 impl EvalASTNode for UnaryExpression {
-    fn eval(&self, known_values: &KnownValues) -> Result<EvalResult, NameError> {
+    fn eval<'a>(&'a self, known_values: &'a KnownValues) -> Result<Eval, NameError> {
         let cval = self.child.eval(known_values)?;
         match &self.tipe {
             UnXprType::Negate => Ok(-cval),

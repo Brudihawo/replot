@@ -8,6 +8,38 @@ pub struct KnownValues {
     pub multiples: HashMap<String, Seq>,
 }
 
+pub struct Known<'a> {
+    pub name: &'a String,
+    pub value: KnownValue<'a>,
+}
+
+impl<'a> From<(f64, &'a String)> for Known<'a> {
+    fn from(i: (f64, &'a String)) -> Self {
+        Self {
+            name: i.1,
+            value: KnownValue::Single(i.0),
+        }
+    }
+}
+
+impl<'a> From<(&'a Seq, &'a String)> for Known<'a> {
+    fn from(i: (&'a Seq, &'a String)) -> Self {
+        Self {
+            name: i.1,
+            value: KnownValue::Multiple(i.0),
+        }
+    }
+}
+
+impl<'a> From<(&'a Box<dyn EvalASTNode>, &'a String)> for Known<'a> {
+    fn from(i: (&'a Box<dyn EvalASTNode>, &'a String)) -> Self {
+        Self {
+            name: i.1,
+            value: KnownValue::Expression(i.0),
+        }
+    }
+}
+
 pub enum KnownValue<'a> {
     Single(f64),
     Multiple(&'a Seq),
@@ -65,17 +97,17 @@ impl KnownValues {
         }
     }
 
-    pub fn get(&self, name: &String) -> Option<KnownValue> {
-        if let Some(val) = self.singles.get(name) {
-            return Some(KnownValue::Single(*val));
+    pub fn get<'a>(&'a self, name: &String) -> Option<Known> {
+        if let Some((key, val)) = self.singles.get_key_value(name) {
+            return Some(Known::from((*val, key)));
         }
 
-        if let Some(func) = self.functions.get(name) {
-            return Some(KnownValue::Expression(&func));
+        if let Some((key, func)) = self.functions.get_key_value(name) {
+            return Some(Known::from((func, key)));
         }
 
-        if let Some(multiples) = self.multiples.get(name) {
-            return Some(KnownValue::Multiple(multiples.clone()));
+        if let Some((key, multiples)) = self.multiples.get_key_value(name) {
+            return Some(Known::from((multiples, key)));
         }
 
         None
