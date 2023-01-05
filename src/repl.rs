@@ -66,6 +66,17 @@ impl Repl {
         );
     }
 
+    fn handle_cmd(&self, cmd: crate::parser::Command) {
+        match cmd {
+            crate::parser::Command::Sequence(seq) => {
+                println!("i, val");
+                for (i, val) in seq.all_vals().iter().enumerate() {
+                    println!("{}, {}", i, val);
+                }
+            }
+        }
+    }
+
     pub fn parse_and_process(&mut self) {
         if let Err(err) = self.get_line() {
             println!("Could not get line: {}", err);
@@ -87,7 +98,7 @@ impl Repl {
         match parse_result {
             Ok(res) => match res {
                 ParseResult::Eval(ast) => self.handle_eval(ast),
-                ParseResult::Command(_) => todo!(),
+                ParseResult::Command(cmd) => self.handle_cmd(cmd),
                 ParseResult::Definition(ass) => self.handle_assignment(ass),
             },
             Err(err) => {

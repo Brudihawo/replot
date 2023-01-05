@@ -53,11 +53,11 @@ pub struct NameError {
 // Evaluation input generated from name nodes
 pub struct EvalInput<'a> {
     pub name: &'a String,
-    pub value: EvalResult,
+    pub value: EvalData,
 }
 
 pub struct Eval<'a> {
-    pub result: EvalResult,
+    pub result: EvalData,
     pub inputs: Vec<EvalInput<'a>>,
 }
 
@@ -132,16 +132,16 @@ impl<'a> Eval<'a> {
     const RESULT_STR: &str = "result";
     const INDEX_STR: &str = "index";
 
-    fn new(result: EvalResult, input: EvalInput<'a>) -> Self {
+    fn new(result: EvalData, input: EvalInput<'a>) -> Self {
         match result {
-            EvalResult::Single(_) => {
-                assert!(matches!(input.value, EvalResult::Single(_)))
+            EvalData::Single(_) => {
+                assert!(matches!(input.value, EvalData::Single(_)))
             }
-            EvalResult::Multiple(ref res) => {
+            EvalData::Multiple(ref res) => {
                 match input.value {
-                    EvalResult::Single(_) => {}
+                    EvalData::Single(_) => {}
                     // TODO(Hawo): This has to change if we implement multiple values in functions
-                    EvalResult::Multiple(ref seq) => assert!(seq.len() == res.len()),
+                    EvalData::Multiple(ref seq) => assert!(seq.len() == res.len()),
                 }
             }
         }
@@ -173,15 +173,15 @@ impl std::fmt::Display for Eval<'_> {
         write!(f, ", {}\n", Self::RESULT_STR)?;
 
         match &self.result {
-            EvalResult::Single(val) => {
+            EvalData::Single(val) => {
                 // this is going to be a 2-line result like:
                 // index, x, y, z, result
                 // 0, 2, 3, 4, 68
                 write!(f, "{}", 0)?;
                 for input in self.inputs.iter() {
                     match input.value {
-                        EvalResult::Single(in_val) => write!(f, ", {}", in_val)?,
-                        EvalResult::Multiple(_) => {
+                        EvalData::Single(in_val) => write!(f, ", {}", in_val)?,
+                        EvalData::Multiple(_) => {
                             unreachable!("Single value EvalResults cannot have multiples as input!")
                         }
                     }
@@ -189,14 +189,14 @@ impl std::fmt::Display for Eval<'_> {
                 // TODO: Do we want this newline to be here?
                 write!(f, ", {}\n", val)
             }
-            EvalResult::Multiple(vals) => {
+            EvalData::Multiple(vals) => {
                 let mut index = 0;
                 while index < vals.len() {
                     write!(f, "{}", index)?;
                     for input in self.inputs.iter() {
                         match &input.value {
-                            EvalResult::Single(in_val) => write!(f, ", {}", in_val)?,
-                            EvalResult::Multiple(in_vals) => write!(
+                            EvalData::Single(in_val) => write!(f, ", {}", in_val)?,
+                            EvalData::Multiple(in_vals) => write!(
                                 f,
                                 ", {}",
                                 in_vals
@@ -217,19 +217,19 @@ impl std::fmt::Display for Eval<'_> {
 impl From<&Literal> for Eval<'_> {
     fn from(lit: &Literal) -> Self {
         Self {
-            result: EvalResult::Single(lit.value),
+            result: EvalData::Single(lit.value),
             inputs: Vec::new(),
         }
     }
 }
 
-pub enum EvalResult {
+pub enum EvalData {
     Single(f64),
     Multiple(Vec<f64>),
 }
 
-impl std::ops::Add for EvalResult {
-    type Output = EvalResult;
+impl std::ops::Add for EvalData {
+    type Output = EvalData;
     fn add(self, rhs: Self) -> Self::Output {
         match &self {
             Self::Single(lhs) => match rhs {
@@ -248,8 +248,8 @@ impl std::ops::Add for EvalResult {
     }
 }
 
-impl std::ops::Sub for EvalResult {
-    type Output = EvalResult;
+impl std::ops::Sub for EvalData {
+    type Output = EvalData;
     fn sub(self, rhs: Self) -> Self::Output {
         match &self {
             Self::Single(lhs) => match rhs {
@@ -266,8 +266,8 @@ impl std::ops::Sub for EvalResult {
     }
 }
 
-impl std::ops::Mul for EvalResult {
-    type Output = EvalResult;
+impl std::ops::Mul for EvalData {
+    type Output = EvalData;
     fn mul(self, rhs: Self) -> Self::Output {
         match &self {
             Self::Single(lhs) => match rhs {
@@ -284,8 +284,8 @@ impl std::ops::Mul for EvalResult {
     }
 }
 
-impl std::ops::Div for EvalResult {
-    type Output = EvalResult;
+impl std::ops::Div for EvalData {
+    type Output = EvalData;
     fn div(self, rhs: Self) -> Self::Output {
         match &self {
             Self::Single(lhs) => match rhs {
@@ -302,8 +302,8 @@ impl std::ops::Div for EvalResult {
     }
 }
 
-impl std::ops::Neg for EvalResult {
-    type Output = EvalResult;
+impl std::ops::Neg for EvalData {
+    type Output = EvalData;
     fn neg(self) -> Self::Output {
         match &self {
             Self::Single(val) => Self::Single(-val),
@@ -312,7 +312,7 @@ impl std::ops::Neg for EvalResult {
     }
 }
 
-impl EvalResult {
+impl EvalData {
     fn pow(self, rhs: Self) -> Self {
         match &self {
             Self::Single(lhs) => match rhs {

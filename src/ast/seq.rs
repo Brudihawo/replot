@@ -1,4 +1,4 @@
-use crate::ast::{EvalResult, NameError};
+use crate::ast::{Eval, EvalASTNode, EvalData, KnownValues, NameError};
 
 #[derive(Debug)]
 pub struct Seq {
@@ -29,11 +29,17 @@ impl Seq {
         Self { start, end, n }
     }
 
-    pub fn eval(&self) -> Result<EvalResult, NameError> {
+    pub fn eval(&self) -> Result<EvalData, NameError> {
         let vals = (0..self.n)
             .map(|i| self.start + (self.end - self.start) / (self.n as f64 - 1.0) * i as f64)
             .collect();
-        Ok(EvalResult::Multiple(vals))
+        Ok(EvalData::Multiple(vals))
+    }
+
+    pub fn all_vals(&self) -> Vec<f64> {
+        (0..self.n)
+            .map(|i| self.start + (self.end - self.start) / (self.n as f64 - 1.0) * i as f64)
+            .collect()
     }
 
     pub fn size(&self) -> usize {

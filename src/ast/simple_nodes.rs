@@ -1,5 +1,5 @@
 use crate::ast::{
-    Eval, EvalASTNode, EvalInput, EvalResult, KnownValue, KnownValues, Location, NameError,
+    Eval, EvalASTNode, EvalInput, EvalData, KnownValue, KnownValues, Location, NameError,
 };
 
 #[derive(Debug)]
@@ -51,10 +51,10 @@ impl EvalASTNode for Name {
         if let Some(known) = known_values.get(&self.name) {
             match known.value {
                 KnownValue::Single(val) => Ok(Eval::new(
-                    EvalResult::Single(val),
+                    EvalData::Single(val),
                     EvalInput {
                         name: known.name,
-                        value: EvalResult::Single(val),
+                        value: EvalData::Single(val),
                     },
                 )),
                 KnownValue::Multiple(seq) => Ok(Eval::new(
