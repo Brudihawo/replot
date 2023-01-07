@@ -730,6 +730,40 @@ mod tests {
             .expect("This should be parseable syntax");
         assert_eq!(format!("{}", output), "seq(0, 1, 10)");
     }
+
+    #[test]
+    fn func_3_vars() {
+        let tokens = Lexer::new("func(0, 1, 10)")
+            .tokenize()
+            .expect("this is a test and it should not fail in parsing");
+        let output = Parser::new(tokens)
+            .parse()
+            .expect("This should be parseable syntax");
+        assert_eq!(format!("{}", output), "func(0, 1, 10)");
+    }
+
+    #[test]
+    fn func_1_var() {
+        let tokens = Lexer::new("func(0)")
+            .tokenize()
+            .expect("this is a test and it should not fail in parsing");
+        let output = Parser::new(tokens)
+            .parse()
+            .expect("This should be parseable syntax");
+        assert_eq!(format!("{}", output), "func(0)");
+    }
+
+    #[test]
+    fn func_0_vars() {
+        let tokens = Lexer::new("func()")
+            .tokenize()
+            .expect("this is a test and it should not fail in parsing");
+        let output = Parser::new(tokens)
+            .parse()
+            .expect("This should be parseable syntax");
+        assert_eq!(format!("{}", output), "func()");
+    }
+
     // TODO(Hawo): Need More Test Cases for Expressions. These nested brackets are tricky
     // TODO(Hawo): I may need to work on selection of neighboring scopes, but for now it's fine
     // TODO(Hawo): Write more Test Cases for Functions
