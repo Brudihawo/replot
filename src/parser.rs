@@ -1,10 +1,57 @@
 use crate::ast::{
     Assignment, AssignmentError, AssignmentLHS, AssignmentRHS, BinaryExpression, EvalASTNode,
-    Function, Literal, Name, Seq, SyntaxError, UnaryExpression,
+    FunctionNode, Literal, Name, Seq, SyntaxError, UnaryExpression,
 };
 use crate::tokenize::{KeyWord, OperatorType, Token, TokenType};
 use std::cmp::Ordering;
 use std::fmt::Display;
+
+macro_rules! ti_with {
+    ($p:pat) => {
+        TokenInfo {
+            token: Token { token_type: $p, .. },
+            ..
+        }
+    };
+}
+
+macro_rules! ti_match_list {
+    ($($p:pat),+ $(,)?) => {
+        [
+            $(TokenInfo {
+                token: Token {
+                    token_type: $p,
+                    ..
+                },
+               ..
+            }),+
+        ]
+    };
+}
+
+#[derive(Debug)]
+pub enum Argument {
+    Name(Name),
+    Literal(Literal),
+    Function(FunctionNode),
+    Expression(Box<dyn EvalASTNode>),
+}
+
+impl std::fmt::Display for Argument {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Argument::Name(name) => write!(f, "{}", name),
+            Argument::Literal(lit) => write!(f, "{}", lit),
+            Argument::Function(func) => write!(f, "{}", func),
+            Argument::Expression(xpr) => write!(f, "{}", xpr),
+        }
+    }
+}
+
+enum ParsedFunction {
+    WithNames(FunctionNode),
+    MustEval(Box<dyn EvalASTNode>),
+}
 
 #[derive(Debug)]
 struct TokenInfo<'a> {
@@ -171,6 +218,14 @@ impl<'a> Parser<'a> {
             3 => {
                 // scope contains 3 elements
                 // this needs to be a binary expression or brackets around a single name or value
+                // if this is a function with no arguments throw an error for now
+                if matches!(
+                    range[0..3],
+                    ti_match_list![TokenType::Name(_), TokenType::Lparen, TokenType::Rparen]
+                ) {
+                    return Err(SyntaxError::UnexpectedToken(range[2].token.clone()));
+                }
+
                 if let TokenType::Operator(op) = range[1].token.token_type {
                     let lhs: Box<dyn EvalASTNode> = match range[0].token.token_type {
                         TokenType::Name(ref name) => {
@@ -196,9 +251,19 @@ impl<'a> Parser<'a> {
                 }
             }
             _ => {
-                if let Some(func) = self.try_parse_function_head(&range)? {
-                    return Ok(Box::new(func));
+                // If it is a function parse the function
+                if let Some(func) = self.try_parse_function(&range)? {
+                    match func {
+                        ParsedFunction::WithNames(func) => {
+                            return Ok(Box::new(func));
+                        }
+                        ParsedFunction::MustEval(_) => todo!(),
+                    }
+                    // TODO(Hawo): Continue debugging here!!
+                    // TODO(Hawo): How do i handle function head / function call differently?
                 }
+
+                // we are not parsing something that is only a function
                 // get operators
                 let mut begin = 0;
                 while range.first().unwrap().token.loc >= self.operator_info[begin].token.loc {
@@ -241,6 +306,7 @@ impl<'a> Parser<'a> {
         &self,
         tokens: &'a [TokenInfo<'a>],
     ) -> Result<Option<Command>, SyntaxError> {
+        // TODO(Hawo): Change handling of keyword parsing
         let keywords: Vec<&TokenInfo> = tokens
             .iter()
             .filter(|x| matches!(&x.token.token_type, TokenType::Keyword(_),))
@@ -256,7 +322,19 @@ impl<'a> Parser<'a> {
                             KeyWord::Plot => unimplemented!("plotting is not implemented yet"),
                             KeyWord::Seq => {
                                 let var_list =
-                                    self.try_parse_num_list(Self::strip_parens(&tokens[1..])?)?;
+                                    self.try_parse_params(Self::strip_parens(&tokens[1..])?)?;
+                                if let Some(it) =
+                                    var_list.iter().find(|x| !matches![x, Argument::Literal(_)])
+                                {
+                                    return Err(todo!());
+                                }
+                                let var_list: Vec<&Literal> = var_list
+                                    .iter()
+                                    .map(|x| match x {
+                                        Argument::Literal(lit) => lit,
+                                        _ => unreachable!(),
+                                    })
+                                    .collect();
                                 match var_list.len() {
                                     0..=2 => {
                                         // we know var_list has at least length 1, otherwise
@@ -301,8 +379,12 @@ impl<'a> Parser<'a> {
                     Command::Sequence(seq) => Ok(AssignmentRHS::Multiple(seq)),
                 }
             } else {
-                if let Some(rhs) = self.try_parse_function_head(tokens)? {
-                    Ok(AssignmentRHS::Function(rhs))
+                if let Some(rhs) = self.try_parse_function(tokens)? {
+                    match rhs {
+                        // if rhs is function, we need to evaluate the function.
+                        ParsedFunction::WithNames(func) => Ok(AssignmentRHS::Function(func)),
+                        ParsedFunction::MustEval(ast) => Ok(AssignmentRHS::Expression(ast)),
+                    }
                 } else {
                     Ok(AssignmentRHS::Expression(self.parse_expression(tokens)?))
                 }
@@ -310,117 +392,76 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// Parse a variable list from a list of tokens without surrounding parens
-    /// Input: a, b, c
-    /// Output: Vec<Name>(a, b, c)
-    fn try_parse_num_list(&self, tokens: &[TokenInfo]) -> Result<Vec<Literal>, SyntaxError> {
-        let mut var_list = Vec::<Literal>::new();
-        let mut name_next = true;
-        for (i, token_info) in tokens.iter().enumerate() {
-            match token_info.token.token_type {
-                TokenType::Literal(ref lit) => {
-                    if !name_next {
-                        return Err(SyntaxError::ExpectedComma(token_info.token.loc));
-                    }
-
-                    var_list.push(Literal {
-                        value: *lit,
-                        loc: token_info.token.loc,
-                    });
-                    name_next = false;
+    fn try_parse_param(&self, range: &[TokenInfo]) -> Result<Argument, SyntaxError> {
+        if range.len() == 1 {
+            return match range[0] {
+                ti_with![TokenType::Name(ref name)] => {
+                    Ok(Argument::Name(Name::new(name.clone(), range[0].token.loc)))
                 }
-                TokenType::Comma => {
-                    if i == tokens.len() - 1 || name_next {
-                        return Err(SyntaxError::ExpectedName(token_info.token.loc));
-                    }
-                    name_next = true;
+                ti_with![TokenType::Literal(ref val)] => {
+                    Ok(Argument::Literal(Literal::new(*val, range[0].token.loc)))
                 }
-                _ => {
-                    return Err(SyntaxError::UnexpectedToken(token_info.token.clone()));
-                }
-            }
+                _ => Err(SyntaxError::UnexpectedToken(range[0].token.clone())),
+            };
         }
-        Ok(var_list)
+        // TODO(Hawo): For now, this only supports Literals and Names.
+        // TODO(Hawo): This needs to support expressions and Functions in the future
+        todo!()
     }
 
     /// Parse a variable list from a list of tokens without surrounding parens
     /// Input: a, b, c
-    /// Output: Vec<Name>(a, b, c)
-    fn try_parse_var_list(&self, tokens: &[TokenInfo]) -> Result<Vec<Name>, SyntaxError> {
-        let mut var_list = Vec::<Name>::new();
-        let mut name_next = true;
-        for (i, token_info) in tokens.iter().enumerate() {
-            match token_info.token.token_type {
-                TokenType::Name(ref name) => {
-                    if !name_next {
-                        return Err(SyntaxError::ExpectedComma(token_info.token.loc));
-                    }
+    /// Output: Vec<FunctionParam>(a, b, c)
+    fn try_parse_params(&self, range: &[TokenInfo]) -> Result<Vec<Argument>, SyntaxError> {
+        let mut var_list = Vec::<Argument>::new();
+        let mut comma_next = true;
 
-                    var_list.push(Name {
-                        name: name.clone(),
-                        loc: token_info.token.loc,
-                    });
-                    name_next = false;
-                }
-                TokenType::Comma => {
-                    if i == tokens.len() - 1 || name_next {
-                        return Err(SyntaxError::ExpectedName(token_info.token.loc));
-                    }
-                    name_next = true;
-                }
-                _ => {
-                    return Err(SyntaxError::UnexpectedToken(token_info.token.clone()));
-                }
+        let mut start = 0;
+        let mut end = 0;
+        while let Some(ti) = range.get(end) {
+            if !(ti.token.token_type == TokenType::Comma) {
+                end += 1;
+                continue;
             }
+
+            // We have found a comma
+            var_list.push(self.try_parse_param(&range[start..end])?);
+            start = end + 1;
+            end = start;
         }
+        if start == end {
+            return Err(SyntaxError::UnexpectedToken(range[end - 1].token.clone()));
+        }
+        var_list.push(self.try_parse_param(&range[start..end])?);
+
         Ok(var_list)
     }
 
-    fn try_parse_function_head(
+    fn try_parse_function(
         &self,
         tokens: &'a [TokenInfo],
-    ) -> Result<Option<Function>, SyntaxError> {
+    ) -> Result<Option<ParsedFunction>, SyntaxError> {
         // Minimal function signature has length 4:  Ident ( var1 )
+        // var may be a name, function or literal
         if tokens.len() < 4 {
             Ok(None)
         } else {
             // Try to parse a function
             if matches!(
-                tokens[0..3],
-                [
-                    TokenInfo {
-                        token: Token {
-                            token_type: TokenType::Name(_),
-                            ..
-                        },
-                        ..
-                    },
-                    TokenInfo {
-                        token: Token {
-                            token_type: TokenType::Lparen,
-                            ..
-                        },
-                        ..
-                    },
-                    TokenInfo {
-                        token: Token {
-                            token_type: TokenType::Name(_),
-                            ..
-                        },
-                        ..
-                    }
-                ]
+                tokens[0..2],
+                ti_match_list![TokenType::Name(_), TokenType::Lparen],
             ) {
-                let var_list = self.try_parse_var_list(Self::strip_parens(&tokens[1..])?)?;
-                return Ok(Some(Function {
+                let func_name = if let TokenType::Name(name) = &tokens[0].token.token_type {
+                    name.clone()
+                } else {
+                    unreachable!()
+                };
+                let var_list = self.try_parse_params(Self::strip_parens(&tokens[1..])?)?;
+                return Ok(Some(ParsedFunction::WithNames(FunctionNode {
                     loc: tokens[0].token.loc,
-                    name: if let TokenType::Name(name) = &tokens[0].token.token_type {
-                        name.clone()
-                    } else {
-                        unreachable!()
-                    },
-                    dependents: var_list,
-                }));
+                    name: func_name,
+                    args: var_list,
+                })));
             }
             Ok(None)
         }
@@ -440,8 +481,14 @@ impl<'a> Parser<'a> {
                 }
             }
             _ => {
-                if let Some(head) = self.try_parse_function_head(tokens)? {
-                    Ok(AssignmentLHS::Function(head))
+                if let Some(func) = self.try_parse_function(tokens)? {
+                    match func {
+                        ParsedFunction::WithNames(head) => Ok(AssignmentLHS::Function(head)),
+                        // Cannot assign to a function evaluation -> this is an rvalue
+                        ParsedFunction::MustEval(_) => {
+                            Err(SyntaxError::InvalidAssignmentLHS(tokens[0].token.loc))
+                        }
+                    }
                 } else {
                     Err(SyntaxError::ExpectedFunctionDef(tokens[0].token.loc))
                 }
@@ -751,17 +798,6 @@ mod tests {
             .parse()
             .expect("This should be parseable syntax");
         assert_eq!(format!("{}", output), "func(0)");
-    }
-
-    #[test]
-    fn func_0_vars() {
-        let tokens = Lexer::new("func()")
-            .tokenize()
-            .expect("this is a test and it should not fail in parsing");
-        let output = Parser::new(tokens)
-            .parse()
-            .expect("This should be parseable syntax");
-        assert_eq!(format!("{}", output), "func()");
     }
 
     // TODO(Hawo): Need More Test Cases for Expressions. These nested brackets are tricky

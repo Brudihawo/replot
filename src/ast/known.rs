@@ -2,9 +2,29 @@ use super::{AssignmentResult, EvalASTNode, Seq};
 
 use std::collections::HashMap;
 
+#[derive(Debug)]
+pub struct Function {
+    dependents: Vec<String>,
+    ast: Box<dyn EvalASTNode>,
+}
+
+impl Function {
+    pub fn new(dependents: Vec<String>, ast: Box<dyn EvalASTNode>) -> Self {
+        Self { dependents, ast }
+    }
+
+    pub fn eval<'a>(
+        &'a self,
+        known_values: &'a KnownValues,
+        call_dependents: &Vec<crate::parser::Argument>,
+    ) -> Result<crate::ast::Eval<'a>, crate::ast::NameError> {
+        todo!()
+    }
+}
+
 pub struct KnownValues {
     pub singles: HashMap<String, f64>,
-    pub functions: HashMap<String, Box<dyn EvalASTNode>>,
+    pub functions: HashMap<String, Function>,
     pub multiples: HashMap<String, Seq>,
 }
 
@@ -31,11 +51,11 @@ impl<'a> From<(&'a Seq, &'a String)> for Known<'a> {
     }
 }
 
-impl<'a> From<(&'a Box<dyn EvalASTNode>, &'a String)> for Known<'a> {
-    fn from(i: (&'a Box<dyn EvalASTNode>, &'a String)) -> Self {
+impl<'a> From<(&'a Function, &'a String)> for Known<'a> {
+    fn from(i: (&'a Function, &'a String)) -> Self {
         Self {
             name: i.1,
-            value: KnownValue::Expression(i.0),
+            value: KnownValue::Function(i.0),
         }
     }
 }
@@ -43,7 +63,7 @@ impl<'a> From<(&'a Box<dyn EvalASTNode>, &'a String)> for Known<'a> {
 pub enum KnownValue<'a> {
     Single(f64),
     Multiple(&'a Seq),
-    Expression(&'a Box<dyn EvalASTNode>),
+    Function(&'a Function),
 }
 
 impl<'a> Into<f64> for KnownValue<'a> {
@@ -55,9 +75,9 @@ impl<'a> Into<f64> for KnownValue<'a> {
     }
 }
 
-impl<'a> Into<&'a Box<dyn EvalASTNode>> for KnownValue<'a> {
-    fn into(self) -> &'a Box<dyn EvalASTNode> {
-        if let KnownValue::Expression(expr) = self {
+impl<'a> Into<&'a Function> for KnownValue<'a> {
+    fn into(self) -> &'a Function {
+        if let KnownValue::Function(expr) = self {
             return expr;
         }
         panic!("KnownValue is not of variant Multiple, so it cannot be cast to f64");
@@ -67,7 +87,7 @@ impl<'a> Into<&'a Box<dyn EvalASTNode>> for KnownValue<'a> {
 pub enum OwnedKnownValue {
     Single(f64),
     Multiple(Seq),
-    Expression(Box<dyn EvalASTNode>),
+    Function(Function),
 }
 
 impl Into<f64> for OwnedKnownValue {
@@ -79,9 +99,9 @@ impl Into<f64> for OwnedKnownValue {
     }
 }
 
-impl Into<Box<dyn EvalASTNode>> for OwnedKnownValue {
-    fn into(self) -> Box<dyn EvalASTNode> {
-        if let OwnedKnownValue::Expression(expr) = self {
+impl Into<Function> for OwnedKnownValue {
+    fn into(self) -> Function {
+        if let OwnedKnownValue::Function(expr) = self {
             return expr;
         }
         panic!("OwnedKnownValue is not of variant Multiple, so it cannot be cast to f64");
@@ -119,7 +139,7 @@ impl KnownValues {
             OwnedKnownValue::Multiple(vals) => {
                 self.multiples.insert(name.clone(), vals).map(|_| ())
             }
-            OwnedKnownValue::Expression(expr) => {
+            OwnedKnownValue::Function(expr) => {
                 self.functions.insert(name.clone(), expr).map(|_| ())
             }
         } {

@@ -11,6 +11,7 @@ This is currently a work in progress!
 - [x] REPL Basics
 - [x] Evaluation of expressions
 - [ ] Better evaluation (with printing sequence of inputs)
+- [ ] Expressions as function arguments 
 - [ ] use of seq-keyword expression in normal expression (instead of name)
 - [ ] Generating sequences of data from functions
 - [ ] multi-variable output
@@ -19,3 +20,4 @@ This is currently a work in progress!
 
 ## Short Term TODOs:
 - [x] convert all `simple_print` function implementations to `std::fmt::Display` trait implementations
+- [ ] Do i want functions to be able to take no arguments?

@@ -1,5 +1,5 @@
 use crate::ast::{
-    Eval, EvalASTNode, EvalInput, EvalData, KnownValue, KnownValues, Location, NameError,
+    Eval, EvalASTNode, EvalData, EvalInput, KnownValue, KnownValues, Location, NameError,
 };
 
 #[derive(Debug)]
@@ -30,7 +30,7 @@ impl std::fmt::Display for Literal {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Name {
     pub name: String,
     pub loc: Location,
@@ -64,7 +64,7 @@ impl EvalASTNode for Name {
                         value: seq.eval()?,
                     },
                 )),
-                KnownValue::Expression(_) => {
+                KnownValue::Function(_) => {
                     unreachable!("This is a Name and should never resolve to a function")
                 }
             }
@@ -84,17 +84,22 @@ impl std::fmt::Display for Name {
 }
 
 #[derive(Debug)]
-pub struct Function {
-    pub loc: Location,
+pub struct FunctionNode {
     pub name: String,
-    // (x, y, z)
-    pub dependents: Vec<Name>,
+    pub loc: Location,
+    pub args: Vec<crate::parser::Argument>,
 }
 
-impl EvalASTNode for Function {
+impl FunctionNode {
+    fn new(name: String, loc: Location, args: Vec<crate::parser::Argument>) -> Self {
+        Self { name, loc, args }
+    }
+}
+
+impl EvalASTNode for FunctionNode {
     fn eval<'a>(&'a self, known_values: &'a KnownValues) -> Result<Eval<'a>, NameError> {
         if let Some(ast) = known_values.functions.get(&self.name) {
-            ast.eval(known_values)
+            ast.eval(known_values, &self.args)
         } else {
             Err(NameError {
                 loc: self.loc,
@@ -104,15 +109,15 @@ impl EvalASTNode for Function {
     }
 }
 
-impl std::fmt::Display for Function {
+impl std::fmt::Display for FunctionNode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let var_list = if self.dependents.len() > 1 {
-            self.dependents
-                .iter()
-                .skip(1)
-                .fold(self.dependents.first().unwrap().name.clone(), |acc, x| {
-                    format!("{}, {}", acc, x.name)
-                })
+        let var_list = if self.args.len() > 1 {
+            self.args.iter().skip(1).fold(
+                format!("{}", self.args.first().unwrap().clone()),
+                |acc, x| format!("{}, {}", acc, x.clone()),
+            )
+        } else if self.args.len() == 1 {
+            format!("{}", self.args[0])
         } else {
             "".to_string()
         };
