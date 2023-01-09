@@ -61,8 +61,9 @@ impl Repl {
 
     fn handle_parser_error(&self, err: SyntaxError) {
         println!(
-            "Error during Parsing of Line '{}', {:?}",
-            self.cur_line, err
+            "Error during Parsing of Line '{}':\n  {:?}",
+            &self.cur_line[..self.cur_line.len() - 1],
+            err
         );
     }
 

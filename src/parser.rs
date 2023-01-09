@@ -252,6 +252,13 @@ impl<'a> Parser<'a> {
             }
             _ => {
                 // If it is a function parse the function
+                if let Some(kw_func) = self.try_parse_keyword(&range)? {
+                    match kw_func {
+                        Command::Sequence(seq) => return Ok(Box::new(seq)),
+                    }
+                    // TODO(Hawo): Continue debugging here!!
+                    // TODO(Hawo): How do i handle function head / function call differently?
+                }
                 if let Some(func) = self.try_parse_function(&range)? {
                     match func {
                         ParsedFunction::WithNames(func) => {
@@ -263,7 +270,7 @@ impl<'a> Parser<'a> {
                     // TODO(Hawo): How do i handle function head / function call differently?
                 }
 
-                // we are not parsing something that is only a function
+                // we are not parsing something that is only a function or keyword expression
                 // get operators
                 let mut begin = 0;
                 while range.first().unwrap().token.loc >= self.operator_info[begin].token.loc {
@@ -304,63 +311,109 @@ impl<'a> Parser<'a> {
 
     fn try_parse_keyword(
         &self,
-        tokens: &'a [TokenInfo<'a>],
+        range: &'a [TokenInfo<'a>],
     ) -> Result<Option<Command>, SyntaxError> {
         // TODO(Hawo): Change handling of keyword parsing
-        let keywords: Vec<&TokenInfo> = tokens
-            .iter()
-            .filter(|x| matches!(&x.token.token_type, TokenType::Keyword(_),))
-            .collect();
-        match keywords.len() {
-            0 => Ok(None),
-            1 => {
-                if !tokens[0].index == 0 {
-                    Err(SyntaxError::InvalidKeywordPosition(tokens[0].token.loc))
-                } else {
-                    if let TokenType::Keyword(kw) = tokens[0].token.token_type.clone() {
-                        match kw {
-                            KeyWord::Plot => unimplemented!("plotting is not implemented yet"),
-                            KeyWord::Seq => {
-                                let var_list =
-                                    self.try_parse_params(Self::strip_parens(&tokens[1..])?)?;
-                                if let Some(it) =
-                                    var_list.iter().find(|x| !matches![x, Argument::Literal(_)])
-                                {
-                                    return Err(todo!());
-                                }
-                                let var_list: Vec<&Literal> = var_list
-                                    .iter()
-                                    .map(|x| match x {
-                                        Argument::Literal(lit) => lit,
-                                        _ => unreachable!(),
-                                    })
-                                    .collect();
-                                match var_list.len() {
-                                    0..=2 => {
-                                        // we know var_list has at least length 1, otherwise
-                                        // self.try_parse_var_list throws an error
-                                        Err(SyntaxError::NotEnoughArguments(
-                                            var_list.last().unwrap().loc,
-                                        ))
-                                    }
-                                    3 => Ok(Some(Command::Sequence(Seq::new(
-                                        var_list[0].value,
-                                        var_list[1].value,
-                                        var_list[2].value as usize,
-                                    )))),
-                                    _ => Err(SyntaxError::TooManyArguments(var_list[3].loc)),
-                                }
-                            }
-                        }
-                    } else {
-                        unreachable!("We filtered by this before")
+        // Try to parse a function
+        if !matches!(
+            range[0..2],
+            ti_match_list![TokenType::Keyword(_), TokenType::Lparen],
+        ) {
+            return Ok(None);
+        }
+
+        let kw = if let TokenType::Keyword(kw) = &range[0].token.token_type {
+            kw
+        } else {
+            unreachable!()
+        };
+
+        match kw {
+            KeyWord::Seq => {
+                let mut start = 1;
+                let var_list = self.try_parse_params(Self::strip_parens(&range[start..])?)?;
+                if range[start].token.token_type == TokenType::Lparen {
+                    start += 1;
+                }
+
+                if let Some((index, _)) = var_list
+                    .iter()
+                    .enumerate()
+                    .find(|(_, x)| !matches![x, Argument::Literal(_)])
+                {
+                    println!("Arguments: {:?}", var_list);
+                    return Err(SyntaxError::InvalidArgument(range[start + index].token.clone()));
+                }
+                let var_list: Vec<&Literal> = var_list
+                    .iter()
+                    .map(|x| match x {
+                        Argument::Literal(lit) => lit,
+                        _ => unreachable!(),
+                    })
+                    .collect();
+                match var_list.len() {
+                    0..=2 => {
+                        // we know var_list has at least length 1, otherwise
+                        // self.try_parse_var_list throws an error
+                        Err(SyntaxError::NotEnoughArguments(
+                            var_list.last().unwrap().loc,
+                        ))
                     }
+                    3 => Ok(Some(Command::Sequence(Seq::new(
+                        var_list[0].value,
+                        var_list[1].value,
+                        var_list[2].value as usize,
+                    )))),
+                    _ => Err(SyntaxError::TooManyArguments(var_list[3].loc)),
                 }
             }
-            _ => Err(SyntaxError::MultipleKeywords(
-                tokens.iter().map(|tok_inf| tok_inf.token.loc).collect(),
-            )),
+            KeyWord::Plot => todo!(),
         }
+
+        // 1 => {
+        //     if !range[0].index == 0 {
+        //         Err(SyntaxError::InvalidKeywordPosition(range[0].token.loc))
+        //     } else {
+        //         if let TokenType::Keyword(kw) = range[0].token.token_type.clone() {
+        //             match kw {
+        //                 KeyWord::Plot => unimplemented!("plotting is not implemented yet"),
+        //                 KeyWord::Seq => {
+        //                     let var_list =
+        //                         self.try_parse_params(Self::strip_parens(&range[1..])?)?;
+        //                     if let Some(it) =
+        //                         var_list.iter().find(|x| !matches![x, Argument::Literal(_)])
+        //                     {
+        //                         return Err(todo!());
+        //                     }
+        //                     let var_list: Vec<&Literal> = var_list
+        //                         .iter()
+        //                         .map(|x| match x {
+        //                             Argument::Literal(lit) => lit,
+        //                             _ => unreachable!(),
+        //                         })
+        //                         .collect();
+        //                     match var_list.len() {
+        //                         0..=2 => {
+        //                             // we know var_list has at least length 1, otherwise
+        //                             // self.try_parse_var_list throws an error
+        //                             Err(SyntaxError::NotEnoughArguments(
+        //                                 var_list.last().unwrap().loc,
+        //                             ))
+        //                         }
+        //                         3 => Ok(Some(Command::Sequence(Seq::new(
+        //                             var_list[0].value,
+        //                             var_list[1].value,
+        //                             var_list[2].value as usize,
+        //                         )))),
+        //                         _ => Err(SyntaxError::TooManyArguments(var_list[3].loc)),
+        //                     }
+        //                 }
+        //             }
+        //         } else {
+        //             unreachable!("We filtered by this before")
+        //         }
+        //     }
+        // }
     }
 
     fn parse_assignment_rhs(&self, tokens: &[TokenInfo]) -> Result<AssignmentRHS, SyntaxError> {
@@ -458,7 +511,7 @@ impl<'a> Parser<'a> {
                 };
 
                 if crate::tokenize::KEYWORDS.contains_key(&func_name) {
-                    return Err(SyntaxError::InvalidFunctionName(tokens[0].token.clone()))
+                    return Err(SyntaxError::InvalidFunctionName(tokens[0].token.clone()));
                 }
 
                 let var_list = self.try_parse_params(Self::strip_parens(&tokens[1..])?)?;
@@ -799,6 +852,42 @@ mod tests {
         let tokens = Lexer::new("func(0)")
             .tokenize()
             .expect("this is a test and it should not fail in parsing");
+        let output = Parser::new(tokens)
+            .parse()
+            .expect("This should be parseable syntax");
+        assert_eq!(format!("{}", output), "func(0)");
+    }
+
+    #[test]
+    fn seq_in_expr() {
+        let tokens = Lexer::new("1 + seq(0, 1, 10)")
+            .tokenize()
+            .expect("this is a test and it should not fail in parsing");
+        println!("{:?}", tokens);
+        let output = Parser::new(tokens)
+            .parse()
+            .expect("This should be parseable syntax");
+        assert_eq!(format!("{}", output), "(1 + seq(0, 1, 10))");
+    }
+
+    #[test]
+    fn seq_in_expr_assignment() {
+        let tokens = Lexer::new("x = 1 + seq(0, 1, 10)")
+            .tokenize()
+            .expect("this is a test and it should not fail in parsing");
+        println!("{:?}", tokens);
+        let output = Parser::new(tokens)
+            .parse()
+            .expect("This should be parseable syntax");
+        assert_eq!(format!("{}", output), "x = (1 + seq(0, 1, 10))");
+    }
+
+    #[test]
+    fn seq_in_rhs_assignment() {
+        let tokens = Lexer::new("f(x) = seq(1, x, 10)")
+            .tokenize()
+            .expect("this is a test and it should not fail in parsing");
+        println!("{:?}", tokens);
         let output = Parser::new(tokens)
             .parse()
             .expect("This should be parseable syntax");

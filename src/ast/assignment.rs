@@ -3,6 +3,7 @@ use super::{
     OwnedKnownValue, Seq, SyntaxError,
 };
 
+#[derive(Debug)]
 pub enum AssignmentRHS {
     Single(f64),
     Multiple(Seq),
@@ -12,6 +13,7 @@ pub enum AssignmentRHS {
     Function(FunctionNode),
 }
 
+#[derive(Debug)]
 pub enum AssignmentLHS {
     Name(Name),
     Function(FunctionNode),
@@ -43,9 +45,12 @@ impl Assignment {
             AssignmentLHS::Name(_) => {
                 if !matches!(
                     rhs,
-                    AssignmentRHS::Name(_) | AssignmentRHS::Single(_) | AssignmentRHS::Multiple(_)
+                    AssignmentRHS::Name(_)
+                        | AssignmentRHS::Single(_)
+                        | AssignmentRHS::Multiple(_)
+                        | AssignmentRHS::Expression(_)
                 ) {
-                    Err(SyntaxError::ExpectedNameAssign(loc))
+                    Err(SyntaxError::ExpectedNameAssign(loc, rhs))
                 } else {
                     Ok(Self { lhs, rhs })
                 }
@@ -73,51 +78,62 @@ impl Assignment {
             AssignmentLHS::Name(name) => name.name.clone(),
             AssignmentLHS::Function(func) => func.name.clone(),
         };
-
-        Ok(known_values.set(
-            name_str,
-            match self.rhs {
-                AssignmentRHS::Single(val) => OwnedKnownValue::Single(val),
-                AssignmentRHS::Multiple(vals) => OwnedKnownValue::Multiple(vals),
-                AssignmentRHS::Expression(expr) => {
+        let target = match self.rhs {
+            AssignmentRHS::Single(val) => OwnedKnownValue::Single(val),
+            AssignmentRHS::Multiple(vals) => OwnedKnownValue::Multiple(vals),
+            AssignmentRHS::Expression(expr) => {
+                if matches![&self.lhs, AssignmentLHS::Name(_)] {
+                    OwnedKnownValue::Expression(expr)
+                } else {
                     let args = match self.lhs {
-                        AssignmentLHS::Name(_) => unreachable!("Trying to set expression to a name. This is disallowed for now and should fail elsewhere!"),
-                        AssignmentLHS::Function(func) => func.args
+                        AssignmentLHS::Function(func) => func.args,
+                        AssignmentLHS::Name(_) => unreachable!(),
                     };
-                    let first_invalid = args.iter().find(|x| !matches![x, crate::parser::Argument::Name(_)]);
+                    let first_invalid = args
+                        .iter()
+                        .find(|x| !matches![x, crate::parser::Argument::Name(_)]);
                     if let Some(arg) = first_invalid {
                         // this cannot be a declaration, because the arguments to the function need
                         // to be specified as names
-                        return Err(AssignmentError::InvalidFunctionParameter(format!("{}", arg)));
+                        return Err(AssignmentError::InvalidFunctionParameter(format!(
+                            "{}",
+                            arg
+                        )));
                     }
-                    OwnedKnownValue::Function(Function::new(args.iter().map(|x| match x {
-                        crate::parser::Argument::Name(name) => name.name.clone(),
-                        _ => unreachable!()
-                    }).collect(),
-                    expr))
-                },
-                AssignmentRHS::Name(name) => {
-                    if let Some(known) = known_values.get(&name.name) {
-                        OwnedKnownValue::Single(known.value.into())
-                    } else {
-                        return Err(AssignmentError::InvalidName(NameError {
-                            msg: format!("Name '{}' not found", name.name),
-                            loc: name.loc,
-                        }));
-                    }
+                    OwnedKnownValue::Function(Function::new(
+                        args.iter()
+                            .map(|x| match x {
+                                crate::parser::Argument::Name(name) => name.name.clone(),
+                                _ => unreachable!(),
+                            })
+                            .collect(),
+                        expr,
+                    ))
                 }
-                AssignmentRHS::Function(func) => {
-                    if let Some(known) = known_values.get(&func.name) {
-                        OwnedKnownValue::Single(known.value.into())
-                    } else {
-                        return Err(AssignmentError::InvalidName(NameError {
-                            msg: format!("Name '{}' not found", func.name),
-                            loc: func.loc,
-                        }));
-                    }
+            }
+            AssignmentRHS::Name(name) => {
+                if let Some(known) = known_values.get(&name.name) {
+                    OwnedKnownValue::Single(known.value.into())
+                } else {
+                    return Err(AssignmentError::InvalidName(NameError {
+                        msg: format!("Name '{}' not found", name.name),
+                        loc: name.loc,
+                    }));
                 }
-            },
-        ))
+            }
+            AssignmentRHS::Function(func) => {
+                if let Some(known) = known_values.get(&func.name) {
+                    OwnedKnownValue::Single(known.value.into())
+                } else {
+                    return Err(AssignmentError::InvalidName(NameError {
+                        msg: format!("Name '{}' not found", func.name),
+                        loc: func.loc,
+                    }));
+                }
+            }
+        };
+
+        Ok(known_values.set(name_str, target))
     }
 }
 impl std::fmt::Display for Assignment {

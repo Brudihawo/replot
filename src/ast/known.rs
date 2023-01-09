@@ -4,6 +4,7 @@ use std::collections::HashMap;
 
 #[derive(Debug)]
 pub struct Function {
+    // TODO: Do i want expressions to be functions with no dependents?
     dependents: Vec<String>,
     ast: Box<dyn EvalASTNode>,
 }
@@ -88,6 +89,7 @@ pub enum OwnedKnownValue {
     Single(f64),
     Multiple(Seq),
     Function(Function),
+    Expression(Box<dyn EvalASTNode>),
 }
 
 impl Into<f64> for OwnedKnownValue {
@@ -139,9 +141,13 @@ impl KnownValues {
             OwnedKnownValue::Multiple(vals) => {
                 self.multiples.insert(name.clone(), vals).map(|_| ())
             }
-            OwnedKnownValue::Function(expr) => {
-                self.functions.insert(name.clone(), expr).map(|_| ())
+            OwnedKnownValue::Function(func) => {
+                self.functions.insert(name.clone(), func).map(|_| ())
             }
+            OwnedKnownValue::Expression(expr) => self
+                .functions
+                .insert(name.clone(), Function::new(Vec::new(), expr))
+                .map(|_| ()),
         } {
             AssignmentResult::Update(self.get(&name).unwrap())
         } else {

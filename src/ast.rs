@@ -13,7 +13,7 @@ pub(crate) use simple_nodes::*;
 use crate::tokenize::{Location, OperatorType, Token, TokenType};
 use std::fmt::{self, Debug};
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug)]
 pub enum SyntaxError {
     NonterminatedParen(Location),
     EtraneousParen(Location),
@@ -36,8 +36,9 @@ pub enum SyntaxError {
     NotEnoughArguments(Location),
     TooManyArguments(Location),
     ExpectedFuncAssign(Location),
-    ExpectedNameAssign(Location),
+    ExpectedNameAssign(Location, assignment::AssignmentRHS),
     InvalidFunctionName(Token),
+    InvalidArgument(Token),
 }
 
 #[derive(Debug)]
@@ -53,7 +54,7 @@ pub struct NameError {
 
 // Evaluation input generated from name nodes
 pub struct EvalInput<'a> {
-    pub name: &'a String,
+    pub name: &'a str,
     pub value: EvalData,
 }
 
@@ -140,11 +141,13 @@ impl<'a> Eval<'a> {
             }
             EvalData::Multiple(ref res) => {
                 match input.value {
+                    EvalData::None => {}
                     EvalData::Single(_) => {}
                     // TODO(Hawo): This has to change if we implement multiple values in functions
                     EvalData::Multiple(ref seq) => assert!(seq.len() == res.len()),
                 }
             }
+            EvalData::None => unreachable!("None should never be a result type"),
         }
 
         Self {
@@ -168,12 +171,17 @@ impl std::fmt::Display for Eval<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // line with variable names
         write!(f, "{}", Self::INDEX_STR)?;
-        for input in self.inputs.iter() {
+        for input in self
+            .inputs
+            .iter()
+            .filter(|&x| !(matches![x.value, EvalData::None]))
+        {
             write!(f, ", {}", input.name)?
         }
         write!(f, ", {}\n", Self::RESULT_STR)?;
 
         match &self.result {
+            EvalData::None => unreachable!("EvalResult cannot be of type None"),
             EvalData::Single(val) => {
                 // this is going to be a 2-line result like:
                 // index, x, y, z, result
@@ -181,6 +189,7 @@ impl std::fmt::Display for Eval<'_> {
                 write!(f, "{}", 0)?;
                 for input in self.inputs.iter() {
                     match input.value {
+                        EvalData::None => {}
                         EvalData::Single(in_val) => write!(f, ", {}", in_val)?,
                         EvalData::Multiple(_) => {
                             unreachable!("Single value EvalResults cannot have multiples as input!")
@@ -204,6 +213,7 @@ impl std::fmt::Display for Eval<'_> {
                                     .get(index)
                                     .expect("We are inside the range by definition")
                             )?,
+                            EvalData::None => {}
                         }
                     }
                     write!(f, ", {}\n", vals[index])?;
@@ -224,7 +234,9 @@ impl From<&Literal> for Eval<'_> {
     }
 }
 
+#[derive(Clone)]
 pub enum EvalData {
+    None,
     Single(f64),
     Multiple(Vec<f64>),
 }
@@ -236,6 +248,7 @@ impl std::ops::Add for EvalData {
             Self::Single(lhs) => match rhs {
                 Self::Single(rhs) => Self::Single(lhs + rhs),
                 Self::Multiple(rhs) => Self::Multiple(rhs.iter().map(|r| lhs + r).collect()),
+                Self::None => panic!("This is a placeholder Type"),
             },
             Self::Multiple(lhs) => match rhs {
                 Self::Single(rhs) => Self::Multiple(lhs.iter().map(|l| rhs + l).collect()),
@@ -244,7 +257,9 @@ impl std::ops::Add for EvalData {
                     assert!(rhs.len() == lhs.len());
                     Self::Multiple(lhs.iter().zip(rhs.iter()).map(|(l, r)| l + r).collect())
                 }
+                Self::None => panic!("This is a placeholder Type"),
             },
+            Self::None => panic!("This is a placeholder Type"),
         }
     }
 }
@@ -256,13 +271,16 @@ impl std::ops::Sub for EvalData {
             Self::Single(lhs) => match rhs {
                 Self::Single(rhs) => Self::Single(lhs - rhs),
                 Self::Multiple(rhs) => Self::Multiple(rhs.iter().map(|r| lhs - r).collect()),
+                Self::None => panic!("This is a placeholder Type"),
             },
             Self::Multiple(lhs) => match rhs {
                 Self::Single(rhs) => Self::Multiple(lhs.iter().map(|l| l - rhs).collect()),
                 Self::Multiple(rhs) => {
                     Self::Multiple(lhs.iter().zip(rhs.iter()).map(|(l, r)| l - r).collect())
                 }
+                Self::None => panic!("This is a placeholder Type"),
             },
+            Self::None => panic!("This is a placeholder Type"),
         }
     }
 }
@@ -274,13 +292,16 @@ impl std::ops::Mul for EvalData {
             Self::Single(lhs) => match rhs {
                 Self::Single(rhs) => Self::Single(lhs * rhs),
                 Self::Multiple(rhs) => Self::Multiple(rhs.iter().map(|x| x * lhs).collect()),
+                Self::None => panic!("This is a placeholder Type"),
             },
             Self::Multiple(lhs) => match rhs {
                 Self::Single(rhs) => Self::Multiple(lhs.iter().map(|x| x * rhs).collect()),
                 Self::Multiple(rhs) => {
                     Self::Multiple(lhs.iter().zip(rhs.iter()).map(|(l, r)| l * r).collect())
                 }
+                Self::None => panic!("This is a placeholder Type"),
             },
+            Self::None => panic!("This is a placeholder Type"),
         }
     }
 }
@@ -292,13 +313,16 @@ impl std::ops::Div for EvalData {
             Self::Single(lhs) => match rhs {
                 Self::Single(rhs) => Self::Single(lhs / rhs),
                 Self::Multiple(rhs) => Self::Multiple(rhs.iter().map(|r| lhs / r).collect()),
+                Self::None => panic!("This is a placeholder Type"),
             },
             Self::Multiple(lhs) => match rhs {
                 Self::Single(rhs) => Self::Multiple(lhs.iter().map(|l| l / rhs).collect()),
                 Self::Multiple(rhs) => {
                     Self::Multiple(lhs.iter().zip(rhs.iter()).map(|(l, r)| l / r).collect())
                 }
+                Self::None => panic!("This is a placeholder Type"),
             },
+            Self::None => panic!("This is a placeholder Type"),
         }
     }
 }
@@ -309,6 +333,7 @@ impl std::ops::Neg for EvalData {
         match &self {
             Self::Single(val) => Self::Single(-val),
             Self::Multiple(vals) => Self::Multiple(vals.iter().map(|val| -val).collect()),
+            Self::None => panic!("This is a placeholder Type"),
         }
     }
 }
@@ -319,6 +344,7 @@ impl EvalData {
             Self::Single(lhs) => match rhs {
                 Self::Single(rhs) => Self::Single(lhs.powf(rhs)),
                 Self::Multiple(rhs) => Self::Multiple(rhs.iter().map(|r| lhs.powf(*r)).collect()),
+                Self::None => panic!("This is a placeholder Type"),
             },
             Self::Multiple(lhs) => match rhs {
                 Self::Single(rhs) => Self::Multiple(lhs.iter().map(|l| l.powf(rhs)).collect()),
@@ -328,7 +354,9 @@ impl EvalData {
                         .map(|(l, r)| l.powf(*r))
                         .collect(),
                 ),
+                Self::None => panic!("This is a placeholder Type"),
             },
+            Self::None => panic!("This is a placeholder Type"),
         }
     }
 }

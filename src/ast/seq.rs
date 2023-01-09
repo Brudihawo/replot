@@ -29,13 +29,6 @@ impl Seq {
         Self { start, end, n }
     }
 
-    pub fn eval(&self) -> Result<EvalData, NameError> {
-        let vals = (0..self.n)
-            .map(|i| self.start + (self.end - self.start) / (self.n as f64 - 1.0) * i as f64)
-            .collect();
-        Ok(EvalData::Multiple(vals))
-    }
-
     pub fn all_vals(&self) -> Vec<f64> {
         (0..self.n)
             .map(|i| self.start + (self.end - self.start) / (self.n as f64 - 1.0) * i as f64)
@@ -56,6 +49,23 @@ impl Seq {
         } else {
             Ok(self.start + (self.end - self.start) / (self.n as f64 - 1.0) * pos as f64)
         }
+    }
+}
+
+const SEQ_VAR_NAME: &str = "seq_idx";
+
+impl EvalASTNode for Seq {
+    fn eval<'a>(&'a self, known_values: &'a KnownValues) -> Result<Eval<'a>, NameError> {
+        let vals = (0..self.n)
+            .map(|i| self.start + (self.end - self.start) / (self.n as f64 - 1.0) * i as f64)
+            .collect();
+        Ok(Eval::new(
+            EvalData::Multiple(vals),
+            super::EvalInput {
+                name: SEQ_VAR_NAME,
+                value: EvalData::None,
+            },
+        ))
     }
 }
 

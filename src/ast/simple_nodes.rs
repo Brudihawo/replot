@@ -57,13 +57,16 @@ impl EvalASTNode for Name {
                         value: EvalData::Single(val),
                     },
                 )),
-                KnownValue::Multiple(seq) => Ok(Eval::new(
-                    seq.eval()?,
-                    EvalInput {
-                        name: known.name,
-                        value: seq.eval()?,
-                    },
-                )),
+                KnownValue::Multiple(seq) => {
+                    let val = seq.eval(known_values)?.result;
+                    Ok(Eval::new(
+                        val.clone(),
+                        EvalInput {
+                            name: known.name,
+                            value: val,
+                        },
+                    ))
+                }
                 KnownValue::Function(_) => {
                     unreachable!("This is a Name and should never resolve to a function")
                 }
