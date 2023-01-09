@@ -37,6 +37,7 @@ pub enum SyntaxError {
     TooManyArguments(Location),
     ExpectedFuncAssign(Location),
     ExpectedNameAssign(Location),
+    InvalidFunctionName(Token),
 }
 
 #[derive(Debug)]

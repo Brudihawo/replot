@@ -69,7 +69,7 @@ const SPECIALCHARS: phf::Map<char, TokenType> = phf_map![
     '^' => TokenType::Operator(OperatorType::Power),
 ];
 
-const KEYWORDS: phf::Map<&'static str, KeyWord> = phf_map![
+pub const KEYWORDS: phf::Map<&'static str, KeyWord> = phf_map![
     "plot" => KeyWord::Plot,
     "seq" => KeyWord::Seq
 ];

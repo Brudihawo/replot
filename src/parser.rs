@@ -456,6 +456,11 @@ impl<'a> Parser<'a> {
                 } else {
                     unreachable!()
                 };
+
+                if crate::tokenize::KEYWORDS.contains_key(&func_name) {
+                    return Err(SyntaxError::InvalidFunctionName(tokens[0].token.clone()))
+                }
+
                 let var_list = self.try_parse_params(Self::strip_parens(&tokens[1..])?)?;
                 return Ok(Some(ParsedFunction::WithNames(FunctionNode {
                     loc: tokens[0].token.loc,
