@@ -25,6 +25,7 @@ impl Repl {
     fn get_line(&mut self) -> Result<(), io::Error> {
         self.cur_line.clear();
         io::stdin().read_line(&mut self.cur_line)?;
+        self.cur_line.pop();
         Ok(())
     }
 
