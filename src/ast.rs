@@ -1,11 +1,15 @@
 mod assignment;
+mod evaluatable;
 mod expression;
+mod function;
 mod known;
 mod seq;
 mod simple_nodes;
 
 pub(crate) use assignment::*;
+pub(crate) use evaluatable::*;
 pub(crate) use expression::*;
+pub(crate) use function::*;
 pub(crate) use known::*;
 pub(crate) use seq::*;
 pub(crate) use simple_nodes::*;
@@ -38,7 +42,7 @@ pub enum SyntaxError {
     ExpectedFuncAssign(Location),
     ExpectedNameAssign(Location, assignment::AssignmentRHS),
     InvalidFunctionName(Token),
-    InvalidArgument(Token),
+    InvalidArgument(crate::parser::Argument),
 }
 
 #[derive(Debug)]
@@ -47,40 +51,44 @@ pub enum AstBuildError {
 }
 
 #[derive(Debug)]
-pub struct NameError {
-    msg: String,
-    loc: Location,
+pub enum EvalError {
+    UnknownName(String, Location),
+    InvalidArgumentNum(String, usize),
+    InvalidArgumentType(String),
 }
 
 // Evaluation input generated from name nodes
-pub struct EvalInput<'a> {
-    pub name: &'a str,
+pub struct EvalInput {
+    pub name: String,
     pub value: EvalData,
 }
 
-pub struct Eval<'a> {
+pub struct Eval {
     pub result: EvalData,
-    pub inputs: Vec<EvalInput<'a>>,
+    pub inputs: Vec<EvalInput>,
+    locals: Option<KnownValues>,
 }
 
-impl<'a> std::ops::Neg for Eval<'a> {
-    type Output = Eval<'a>;
+impl<'a> std::ops::Neg for Eval {
+    type Output = Eval;
 
     fn neg(self) -> Self::Output {
         Self::Output {
             result: -self.result,
             inputs: self.inputs,
+            locals: None,
         }
     }
 }
 
-impl<'a> std::ops::Add for Eval<'a> {
-    type Output = Eval<'a>;
+impl<'a> std::ops::Add for Eval {
+    type Output = Eval;
 
     fn add(mut self, mut rhs: Self) -> Self::Output {
         let mut out = Self::Output {
             result: self.result + rhs.result,
             inputs: Vec::<EvalInput>::new(),
+            locals: None,
         };
         out.inputs.append(&mut self.inputs);
         out.inputs.append(&mut rhs.inputs);
@@ -88,13 +96,14 @@ impl<'a> std::ops::Add for Eval<'a> {
     }
 }
 
-impl<'a> std::ops::Sub for Eval<'a> {
-    type Output = Eval<'a>;
+impl<'a> std::ops::Sub for Eval {
+    type Output = Eval;
 
     fn sub(mut self, mut rhs: Self) -> Self::Output {
         let mut out = Self::Output {
             result: self.result - rhs.result,
             inputs: Vec::new(),
+            locals: None,
         };
         out.inputs.append(&mut self.inputs);
         out.inputs.append(&mut rhs.inputs);
@@ -102,13 +111,14 @@ impl<'a> std::ops::Sub for Eval<'a> {
     }
 }
 
-impl<'a> std::ops::Mul for Eval<'a> {
-    type Output = Eval<'a>;
+impl<'a> std::ops::Mul for Eval {
+    type Output = Eval;
 
     fn mul(mut self, mut rhs: Self) -> Self::Output {
         let mut out = Self::Output {
             result: self.result * rhs.result,
             inputs: Vec::new(),
+            locals: None,
         };
         out.inputs.append(&mut self.inputs);
         out.inputs.append(&mut rhs.inputs);
@@ -116,13 +126,14 @@ impl<'a> std::ops::Mul for Eval<'a> {
     }
 }
 
-impl<'a> std::ops::Div for Eval<'a> {
-    type Output = Eval<'a>;
+impl<'a> std::ops::Div for Eval {
+    type Output = Eval;
 
     fn div(mut self, mut rhs: Self) -> Self::Output {
         let mut out = Self::Output {
             result: self.result / rhs.result,
             inputs: Vec::new(),
+            locals: None,
         };
         out.inputs.append(&mut self.inputs);
         out.inputs.append(&mut rhs.inputs);
@@ -130,11 +141,11 @@ impl<'a> std::ops::Div for Eval<'a> {
     }
 }
 
-impl<'a> Eval<'a> {
+impl Eval {
     const RESULT_STR: &str = "result";
     const INDEX_STR: &str = "index";
 
-    fn new(result: EvalData, input: EvalInput<'a>) -> Self {
+    fn new(result: EvalData, input: EvalInput) -> Self {
         match result {
             EvalData::Single(_) => {
                 assert!(matches!(input.value, EvalData::Single(_)))
@@ -153,21 +164,43 @@ impl<'a> Eval<'a> {
         Self {
             result,
             inputs: vec![input],
+            locals: None,
         }
+    }
+
+    fn add_knowns(mut self: Eval, knowns: &'_ KnownValues) -> Self {
+        self.locals = Some(knowns.clone());
+        self
     }
 
     fn pow(mut self, mut rhs: Self) -> Self {
         let mut out = Self {
             result: self.result.pow(rhs.result),
             inputs: Vec::new(),
+            locals: None,
         };
         out.inputs.append(&mut self.inputs);
         out.inputs.append(&mut rhs.inputs);
         out
     }
+
+    fn scale(self, rhs: f64) -> Self {
+        let out = Self {
+            result: match self.result {
+                EvalData::None => unreachable!("Empty Eval should never be scaled"),
+                EvalData::Single(val) => EvalData::Single(val * rhs),
+                EvalData::Multiple(vals) => {
+                    EvalData::Multiple(vals.iter().map(|&x| x * rhs).collect())
+                }
+            },
+            inputs: self.inputs,
+            locals: None,
+        };
+        out
+    }
 }
 
-impl std::fmt::Display for Eval<'_> {
+impl std::fmt::Display for Eval {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // line with variable names
         write!(f, "{}", Self::INDEX_STR)?;
@@ -225,11 +258,12 @@ impl std::fmt::Display for Eval<'_> {
     }
 }
 
-impl From<&Literal> for Eval<'_> {
+impl From<&Literal> for Eval {
     fn from(lit: &Literal) -> Self {
         Self {
             result: EvalData::Single(lit.value),
             inputs: Vec::new(),
+            locals: None,
         }
     }
 }
@@ -362,5 +396,5 @@ impl EvalData {
 }
 
 pub trait EvalASTNode: Debug + fmt::Display {
-    fn eval<'a>(&'a self, known_values: &'a KnownValues) -> Result<Eval<'a>, NameError>;
+    fn eval<'a>(&'a self, known_values: &'a KnownValues) -> Result<Eval, EvalError>;
 }

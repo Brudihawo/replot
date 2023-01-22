@@ -1,31 +1,11 @@
-use super::{AssignmentResult, EvalASTNode, Seq};
+use super::{AssignmentResult, Evaluatable, Seq};
 
 use std::collections::HashMap;
 
-#[derive(Debug)]
-pub struct Function {
-    // TODO: Do i want expressions to be functions with no dependents?
-    dependents: Vec<String>,
-    ast: Box<dyn EvalASTNode>,
-}
-
-impl Function {
-    pub fn new(dependents: Vec<String>, ast: Box<dyn EvalASTNode>) -> Self {
-        Self { dependents, ast }
-    }
-
-    pub fn eval<'a>(
-        &'a self,
-        known_values: &'a KnownValues,
-        call_dependents: &Vec<crate::parser::Argument>,
-    ) -> Result<crate::ast::Eval<'a>, crate::ast::NameError> {
-        todo!()
-    }
-}
-
+#[derive(Clone)]
 pub struct KnownValues {
     pub singles: HashMap<String, f64>,
-    pub functions: HashMap<String, Function>,
+    pub functions: HashMap<String, Evaluatable>,
     pub multiples: HashMap<String, Seq>,
 }
 
@@ -52,8 +32,8 @@ impl<'a> From<(&'a Seq, &'a String)> for Known<'a> {
     }
 }
 
-impl<'a> From<(&'a Function, &'a String)> for Known<'a> {
-    fn from(i: (&'a Function, &'a String)) -> Self {
+impl<'a> From<(&'a Evaluatable, &'a String)> for Known<'a> {
+    fn from(i: (&'a Evaluatable, &'a String)) -> Self {
         Self {
             name: i.1,
             value: KnownValue::Function(i.0),
@@ -64,7 +44,7 @@ impl<'a> From<(&'a Function, &'a String)> for Known<'a> {
 pub enum KnownValue<'a> {
     Single(f64),
     Multiple(&'a Seq),
-    Function(&'a Function),
+    Function(&'a Evaluatable),
 }
 
 impl<'a> Into<f64> for KnownValue<'a> {
@@ -76,8 +56,8 @@ impl<'a> Into<f64> for KnownValue<'a> {
     }
 }
 
-impl<'a> Into<&'a Function> for KnownValue<'a> {
-    fn into(self) -> &'a Function {
+impl<'a> Into<&'a Evaluatable> for KnownValue<'a> {
+    fn into(self) -> &'a Evaluatable {
         if let KnownValue::Function(expr) = self {
             return expr;
         }
@@ -85,11 +65,11 @@ impl<'a> Into<&'a Function> for KnownValue<'a> {
     }
 }
 
+#[derive(Debug)]
 pub enum OwnedKnownValue {
     Single(f64),
     Multiple(Seq),
-    Function(Function),
-    Expression(Box<dyn EvalASTNode>),
+    Eval(Evaluatable),
 }
 
 impl Into<f64> for OwnedKnownValue {
@@ -101,10 +81,10 @@ impl Into<f64> for OwnedKnownValue {
     }
 }
 
-impl Into<Function> for OwnedKnownValue {
-    fn into(self) -> Function {
-        if let OwnedKnownValue::Function(expr) = self {
-            return expr;
+impl Into<Evaluatable> for OwnedKnownValue {
+    fn into(self) -> Evaluatable {
+        if let OwnedKnownValue::Eval(ev) = self {
+            return ev;
         }
         panic!("OwnedKnownValue is not of variant Multiple, so it cannot be cast to f64");
     }
@@ -137,17 +117,12 @@ impl KnownValues {
 
     pub fn set(&mut self, name: String, target: OwnedKnownValue) -> AssignmentResult {
         if let Some(_) = match target {
+            // TODO(Hawo): What is going on with the .map here
             OwnedKnownValue::Single(val) => self.singles.insert(name.clone(), val).map(|_| ()),
             OwnedKnownValue::Multiple(vals) => {
                 self.multiples.insert(name.clone(), vals).map(|_| ())
             }
-            OwnedKnownValue::Function(func) => {
-                self.functions.insert(name.clone(), func).map(|_| ())
-            }
-            OwnedKnownValue::Expression(expr) => self
-                .functions
-                .insert(name.clone(), Function::new(Vec::new(), expr))
-                .map(|_| ()),
+            OwnedKnownValue::Eval(ev) => self.functions.insert(name.clone(), ev).map(|_| ()),
         } {
             AssignmentResult::Update(self.get(&name).unwrap())
         } else {

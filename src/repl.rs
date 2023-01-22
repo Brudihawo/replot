@@ -9,11 +9,6 @@ pub struct Repl {
     cur_line: String,
 }
 
-enum ReplErr {
-    Tokenize(LexerError),
-    Parse(SyntaxError),
-}
-
 impl Repl {
     pub fn new() -> Self {
         Self {
@@ -29,8 +24,8 @@ impl Repl {
         Ok(())
     }
 
-    fn handle_eval(&self, ast: Box<dyn EvalASTNode>) {
-        match ast.eval(&self.knowns) {
+    fn handle_eval(&self, ev: crate::ast::Evaluatable) {
+        match ev.eval(&self.knowns) {
             Ok(eval) => print!("{}", eval),
             Err(err) => println!("Error during Evaluation: {:?}", err),
         }
@@ -72,7 +67,8 @@ impl Repl {
         match cmd {
             crate::parser::Command::Sequence(seq) => {
                 println!("i, val");
-                for (i, val) in seq.all_vals().iter().enumerate() {
+                // TODO: This is obsolete
+                for (i, val) in seq.eval(&self.knowns).iter().enumerate() {
                     println!("{}, {}", i, val);
                 }
             }
@@ -99,7 +95,7 @@ impl Repl {
         let parse_result = Parser::new(tokens).parse();
         match parse_result {
             Ok(res) => match res {
-                ParseResult::Eval(ast) => self.handle_eval(ast),
+                ParseResult::Eval(ev) => self.handle_eval(ev),
                 ParseResult::Command(cmd) => self.handle_cmd(cmd),
                 ParseResult::Definition(ass) => self.handle_assignment(ass),
             },

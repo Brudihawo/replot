@@ -1,16 +1,9 @@
-use super::{
-    EvalASTNode, Function, FunctionNode, Known, KnownValues, Location, Name, NameError,
-    OwnedKnownValue, Seq, SyntaxError,
-};
+use super::{Evaluatable, FunctionNode, Known, KnownValues, Location, Name, OwnedKnownValue};
 
 #[derive(Debug)]
 pub enum AssignmentRHS {
     Single(f64),
-    Multiple(Seq),
-    Expression(Box<dyn EvalASTNode>),
-
-    Name(Name),
-    Function(FunctionNode),
+    Eval(Evaluatable),
 }
 
 #[derive(Debug)]
@@ -32,35 +25,33 @@ pub struct Assignment {
 #[derive(Debug)]
 pub enum AssignmentError {
     InvalidFunctionParameter(String),
-    InvalidName(NameError),
+    ExpectedFunc(Location),
+    ExpectedName(Location),
+    InvalidName(Name),
+    CannotDepend(Name),
 }
 
 impl Assignment {
-    pub fn from(
+    pub fn new(
         lhs: AssignmentLHS,
         rhs: AssignmentRHS,
         loc: Location,
-    ) -> Result<Self, SyntaxError> {
+    ) -> Result<Self, AssignmentError> {
         match lhs {
             AssignmentLHS::Name(_) => {
-                if !matches!(
-                    rhs,
-                    AssignmentRHS::Name(_)
-                        | AssignmentRHS::Single(_)
-                        | AssignmentRHS::Multiple(_)
-                        | AssignmentRHS::Expression(_)
-                ) {
-                    Err(SyntaxError::ExpectedNameAssign(loc, rhs))
+                if let AssignmentRHS::Eval(Evaluatable {
+                    dependents: Some(_),
+                    ..
+                }) = &rhs
+                {
+                    Err(AssignmentError::ExpectedName(loc))
                 } else {
                     Ok(Self { lhs, rhs })
                 }
             }
             AssignmentLHS::Function(_) => {
-                if !matches!(
-                    rhs,
-                    AssignmentRHS::Function(_) | AssignmentRHS::Expression(_)
-                ) {
-                    Err(SyntaxError::ExpectedFuncAssign(loc))
+                if matches!(rhs, AssignmentRHS::Single(_)) {
+                    Err(AssignmentError::ExpectedFunc(loc))
                 } else {
                     Ok(Self { lhs, rhs })
                 }
@@ -80,56 +71,20 @@ impl Assignment {
         };
         let target = match self.rhs {
             AssignmentRHS::Single(val) => OwnedKnownValue::Single(val),
-            AssignmentRHS::Multiple(vals) => OwnedKnownValue::Multiple(vals),
-            AssignmentRHS::Expression(expr) => {
-                if matches![&self.lhs, AssignmentLHS::Name(_)] {
-                    OwnedKnownValue::Expression(expr)
-                } else {
-                    let args = match self.lhs {
-                        AssignmentLHS::Function(func) => func.args,
-                        AssignmentLHS::Name(_) => unreachable!(),
-                    };
-                    let first_invalid = args
-                        .iter()
-                        .find(|x| !matches![x, crate::parser::Argument::Name(_)]);
-                    if let Some(arg) = first_invalid {
-                        // this cannot be a declaration, because the arguments to the function need
-                        // to be specified as names
-                        return Err(AssignmentError::InvalidFunctionParameter(format!(
-                            "{}",
-                            arg
-                        )));
+            AssignmentRHS::Eval(mut ev) => {
+                match self.lhs {
+                    AssignmentLHS::Name(n) => {
+                        if ev.dependents.is_some() {
+                            // Cannot assign evaluatable with dependents to name
+                            return Err(AssignmentError::CannotDepend(n));
+                        }
                     }
-                    OwnedKnownValue::Function(Function::new(
-                        args.iter()
-                            .map(|x| match x {
-                                crate::parser::Argument::Name(name) => name.name.clone(),
-                                _ => unreachable!(),
-                            })
-                            .collect(),
-                        expr,
-                    ))
+                    AssignmentLHS::Function(func) => {
+                        ev.dependents = Some(func.args);
+                        ev.name = Some(func.name);
+                    }
                 }
-            }
-            AssignmentRHS::Name(name) => {
-                if let Some(known) = known_values.get(&name.name) {
-                    OwnedKnownValue::Single(known.value.into())
-                } else {
-                    return Err(AssignmentError::InvalidName(NameError {
-                        msg: format!("Name '{}' not found", name.name),
-                        loc: name.loc,
-                    }));
-                }
-            }
-            AssignmentRHS::Function(func) => {
-                if let Some(known) = known_values.get(&func.name) {
-                    OwnedKnownValue::Single(known.value.into())
-                } else {
-                    return Err(AssignmentError::InvalidName(NameError {
-                        msg: format!("Name '{}' not found", func.name),
-                        loc: func.loc,
-                    }));
-                }
+                OwnedKnownValue::Eval(ev)
             }
         };
 
@@ -140,10 +95,7 @@ impl std::fmt::Display for Assignment {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let rhs_str = match &self.rhs {
             AssignmentRHS::Single(val) => format!("{}", val),
-            AssignmentRHS::Multiple(seq) => format!("{}", seq),
-            AssignmentRHS::Name(name) => format!("{}", name),
-            AssignmentRHS::Function(fun) => format!("{}", fun),
-            AssignmentRHS::Expression(expr) => format!("{}", expr),
+            AssignmentRHS::Eval(ev) => format!("{}", ev),
         };
 
         let name_str = match &self.lhs {

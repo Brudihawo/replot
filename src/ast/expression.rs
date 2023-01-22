@@ -2,16 +2,16 @@ use crate::ast::*;
 
 #[derive(Debug)]
 pub struct BinaryExpression {
-    left: Box<dyn EvalASTNode>,
-    right: Box<dyn EvalASTNode>,
+    left: Evaluatable,
+    right: Evaluatable,
     tipe: BinXprType,
 }
 
 impl BinaryExpression {
     pub fn new(
         tipe: OperatorType,
-        left: Box<dyn EvalASTNode>,
-        right: Box<dyn EvalASTNode>,
+        left: Evaluatable,
+        right: Evaluatable,
     ) -> Result<Self, AstBuildError> {
         Ok(BinaryExpression {
             tipe: match tipe {
@@ -25,14 +25,6 @@ impl BinaryExpression {
             left,
             right,
         })
-    }
-
-    pub fn new_box(
-        tipe: OperatorType,
-        left: Box<dyn EvalASTNode>,
-        right: Box<dyn EvalASTNode>,
-    ) -> Result<Box<Self>, AstBuildError> {
-        Ok(Box::new(Self::new(tipe, left, right)?))
     }
 }
 
@@ -63,9 +55,9 @@ impl UnaryExpression {
 }
 
 impl EvalASTNode for BinaryExpression {
-    fn eval<'a>(&'a self, known_values: &'a KnownValues) -> Result<Eval, NameError> {
-        let lval = self.left.eval(known_values)?;
-        let rval = self.right.eval(known_values)?;
+    fn eval<'a>(&'a self, known_values: &'a KnownValues) -> Result<Eval, EvalError> {
+        let lval = self.left.ast.eval(known_values)?;
+        let rval = self.right.ast.eval(known_values)?;
         match &self.tipe {
             BinXprType::Add => Ok(lval + rval),
             BinXprType::Subtract => Ok(lval - rval),
@@ -95,7 +87,7 @@ impl std::fmt::Display for BinaryExpression {
 }
 
 impl EvalASTNode for UnaryExpression {
-    fn eval<'a>(&'a self, known_values: &'a KnownValues) -> Result<Eval, NameError> {
+    fn eval<'a>(&'a self, known_values: &'a KnownValues) -> Result<Eval, EvalError> {
         let cval = self.child.eval(known_values)?;
         match &self.tipe {
             UnXprType::Negate => Ok(-cval),

@@ -1,10 +1,10 @@
 use crate::ast::{
-    Assignment, AssignmentError, AssignmentLHS, AssignmentRHS, BinaryExpression, EvalASTNode,
+    Assignment, AssignmentError, AssignmentLHS, AssignmentRHS, BinaryExpression, Evaluatable,
     FunctionNode, Literal, Name, Seq, SyntaxError, UnaryExpression,
 };
+
 use crate::tokenize::{KeyWord, OperatorType, Token, TokenType};
 use std::cmp::Ordering;
-use std::fmt::Display;
 
 macro_rules! ti_with {
     ($p:pat) => {
@@ -29,28 +29,21 @@ macro_rules! ti_match_list {
     };
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Argument {
     Name(Name),
-    Literal(Literal),
-    Function(FunctionNode),
-    Expression(Box<dyn EvalASTNode>),
+    Lit(Literal),
+    Eval(Evaluatable),
 }
 
 impl std::fmt::Display for Argument {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Argument::Name(name) => write!(f, "{}", name),
-            Argument::Literal(lit) => write!(f, "{}", lit),
-            Argument::Function(func) => write!(f, "{}", func),
-            Argument::Expression(xpr) => write!(f, "{}", xpr),
+            Argument::Lit(lit) => write!(f, "{}", lit),
+            Argument::Eval(ev) => write!(f, "{}", ev),
+            Argument::Name(n) => write!(f, "{}", n),
         }
     }
-}
-
-enum ParsedFunction {
-    WithNames(FunctionNode),
-    MustEval(Box<dyn EvalASTNode>),
 }
 
 #[derive(Debug)]
@@ -105,7 +98,7 @@ pub enum Command {
 }
 
 pub enum ParseResult {
-    Eval(Box<dyn EvalASTNode>),
+    Eval(Evaluatable),
     Command(Command),
     Definition(Assignment),
 }
@@ -176,10 +169,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_expression(
-        &self,
-        range: &'a [TokenInfo<'a>],
-    ) -> Result<Box<dyn EvalASTNode>, SyntaxError> {
+    fn parse_evaluatable(&self, range: &'a [TokenInfo<'a>]) -> Result<Evaluatable, SyntaxError> {
         assert!(!range.is_empty());
 
         let range = Self::strip_parens(range)?;
@@ -191,10 +181,10 @@ impl<'a> Parser<'a> {
                 let token = &range[0].token;
                 match token.token_type {
                     TokenType::Name(ref name) => {
-                        return Ok(Name::new_box(name.clone(), token.loc));
+                        return Ok(Name::new(name.clone(), token.loc).into());
                     }
                     TokenType::Literal(value) => {
-                        return Ok(Literal::new_box(value, token.loc));
+                        return Ok(Literal::new(value, token.loc).into());
                     }
                     _ => return Err(SyntaxError::CannotEvaluate(token.loc)),
                 }
@@ -202,18 +192,17 @@ impl<'a> Parser<'a> {
             2 => {
                 // scope contains 2 elements
                 // this needs to be a unary expression
-                return Ok(Box::new(
-                    UnaryExpression::try_from(
-                        range.first().unwrap().token,
-                        range.last().unwrap().token,
+                return Ok(UnaryExpression::try_from(
+                    range.first().unwrap().token,
+                    range.last().unwrap().token,
+                )
+                .map_err(|_| {
+                    SyntaxError::NonEvaluatableScope(
+                        range.first().unwrap().token.loc,
+                        range.last().unwrap().token.loc,
                     )
-                    .map_err(|_| {
-                        SyntaxError::NonEvaluatableScope(
-                            range.first().unwrap().token.loc,
-                            range.last().unwrap().token.loc,
-                        )
-                    })?,
-                ));
+                })?
+                .into());
             }
             3 => {
                 // scope contains 3 elements
@@ -227,25 +216,25 @@ impl<'a> Parser<'a> {
                 }
 
                 if let TokenType::Operator(op) = range[1].token.token_type {
-                    let lhs: Box<dyn EvalASTNode> = match range[0].token.token_type {
+                    let lhs: Evaluatable = match range[0].token.token_type {
                         TokenType::Name(ref name) => {
-                            Name::new_box(name.clone(), range[0].token.loc)
+                            Name::new(name.clone(), range[0].token.loc).into()
                         }
-                        TokenType::Literal(value) => Literal::new_box(value, range[0].token.loc),
+                        TokenType::Literal(value) => Literal::new(value, range[0].token.loc).into(),
                         _ => return Err(SyntaxError::InvalidBinaryOperand(range[0].token.loc)),
                     };
 
-                    let rhs: Box<dyn EvalASTNode> = match range[2].token.token_type {
+                    let rhs: Evaluatable = match range[2].token.token_type {
                         TokenType::Name(ref name) => {
-                            Name::new_box(name.clone(), range[2].token.loc)
+                            Name::new(name.clone(), range[2].token.loc).into()
                         }
-                        TokenType::Literal(value) => Literal::new_box(value, range[2].token.loc),
+                        TokenType::Literal(value) => Literal::new(value, range[2].token.loc).into(),
                         _ => return Err(SyntaxError::InvalidBinaryOperand(range[2].token.loc)),
                     };
 
-                    Ok(Box::new(
-                        BinaryExpression::new(op, lhs, rhs).expect("Equals are handled elsewhere"),
-                    ))
+                    Ok(BinaryExpression::new(op, lhs, rhs)
+                        .expect("Equals are handled elsewhere")
+                        .into())
                 } else {
                     Err(SyntaxError::InvalidBinaryOperator(range[1].token.loc))
                 }
@@ -254,20 +243,12 @@ impl<'a> Parser<'a> {
                 // If it is a function parse the function
                 if let Some(kw_func) = self.try_parse_keyword(&range)? {
                     match kw_func {
-                        Command::Sequence(seq) => return Ok(Box::new(seq)),
+                        Command::Sequence(seq) => return Ok(seq.into()),
                     }
-                    // TODO(Hawo): Continue debugging here!!
                     // TODO(Hawo): How do i handle function head / function call differently?
                 }
                 if let Some(func) = self.try_parse_function(&range)? {
-                    match func {
-                        ParsedFunction::WithNames(func) => {
-                            return Ok(Box::new(func));
-                        }
-                        ParsedFunction::MustEval(_) => todo!(),
-                    }
-                    // TODO(Hawo): Continue debugging here!!
-                    // TODO(Hawo): How do i handle function head / function call differently?
+                    return Ok(func.into());
                 }
 
                 // we are not parsing something that is only a function or keyword expression
@@ -293,18 +274,18 @@ impl<'a> Parser<'a> {
                 while (l_first > 0) && (range[l_first].depth >= depth) {
                     l_first -= 1;
                 }
-                let lhs = self.parse_expression(&range[l_first..l_end])?;
+                let lhs = self.parse_evaluatable(&range[l_first..l_end])?;
 
                 let r_first = operator.index - range[0].index + 1;
                 let mut r_end = r_first + 1;
                 while (r_end < range.len()) && (range[r_end].depth >= depth) {
                     r_end += 1;
                 }
-                let rhs = self.parse_expression(&range[r_first..r_end])?;
+                let rhs = self.parse_evaluatable(&range[r_first..r_end])?;
 
-                BinaryExpression::new_box(*operator.op_type, lhs, rhs)
-                    .map_err(|_| SyntaxError::MisplacedEquals(operator.token.loc))
-                    .map(|x| x as Box<dyn EvalASTNode>)
+                Ok(BinaryExpression::new(*operator.op_type, lhs, rhs)
+                    .map_err(|_| SyntaxError::MisplacedEquals(operator.token.loc))?
+                    .into())
             }
         }
     }
@@ -315,6 +296,10 @@ impl<'a> Parser<'a> {
     ) -> Result<Option<Command>, SyntaxError> {
         // TODO(Hawo): Change handling of keyword parsing
         // Try to parse a function
+        if range.len() < 3 {
+            return Ok(None);
+        }
+
         if !matches!(
             range[0..2],
             ti_match_list![TokenType::Keyword(_), TokenType::Lparen],
@@ -331,45 +316,49 @@ impl<'a> Parser<'a> {
         match kw {
             KeyWord::Seq => {
                 let mut start = 1;
-                let var_list = self.try_parse_params(Self::strip_parens(&range[start..])?)?;
+                let mut var_list = match self.try_parse_params(Self::strip_parens(&range[start..])?)
+                {
+                    Ok(vars) => vars,
+                    Err(_) => return Ok(None),
+                };
+
                 if range[start].token.token_type == TokenType::Lparen {
                     start += 1;
                 }
 
-                if let Some((index, _)) = var_list
-                    .iter()
-                    .enumerate()
-                    .find(|(_, x)| !matches![x, Argument::Literal(_)])
-                {
-                    println!("Arguments: {:?}", var_list);
-                    return Err(SyntaxError::InvalidArgument(range[start + index].token.clone()));
-                }
-                let var_list: Vec<&Literal> = var_list
-                    .iter()
-                    .map(|x| match x {
-                        Argument::Literal(lit) => lit,
-                        _ => unreachable!(),
-                    })
-                    .collect();
                 match var_list.len() {
                     0..=2 => {
                         // we know var_list has at least length 1, otherwise
                         // self.try_parse_var_list throws an error
-                        Err(SyntaxError::NotEnoughArguments(
-                            var_list.last().unwrap().loc,
-                        ))
+                        Err(SyntaxError::NotEnoughArguments(range[start].token.loc))
                     }
-                    3 => Ok(Some(Command::Sequence(Seq::new(
-                        var_list[0].value,
-                        var_list[1].value,
-                        var_list[2].value as usize,
-                    )))),
-                    _ => Err(SyntaxError::TooManyArguments(var_list[3].loc)),
+                    3 => {
+                        let n = var_list.pop().unwrap();
+                        let end = var_list.pop().unwrap();
+                        let start = var_list.pop().unwrap();
+                        if let Argument::Lit(num_iter) = n {
+                            Ok(Some(Command::Sequence(Seq::new(
+                                match start {
+                                    Argument::Name(name) => name.into(),
+                                    Argument::Eval(ev) => ev,
+                                    Argument::Lit(lit) => lit.into(),
+                                },
+                                match end {
+                                    Argument::Name(name) => name.into(),
+                                    Argument::Eval(ev) => ev,
+                                    Argument::Lit(lit) => lit.into(),
+                                },
+                                num_iter.value as usize,
+                            ))))
+                        } else {
+                            Err(SyntaxError::InvalidArgument(n))
+                        }
+                    }
+                    _ => Err(SyntaxError::TooManyArguments(range[0].token.loc)),
                 }
             }
             KeyWord::Plot => todo!(),
         }
-
         // 1 => {
         //     if !range[0].index == 0 {
         //         Err(SyntaxError::InvalidKeywordPosition(range[0].token.loc))
@@ -419,47 +408,44 @@ impl<'a> Parser<'a> {
     fn parse_assignment_rhs(&self, tokens: &[TokenInfo]) -> Result<AssignmentRHS, SyntaxError> {
         if tokens.len() == 1 {
             match &tokens[0].token.token_type {
-                TokenType::Name(name) => Ok(AssignmentRHS::Name(Name {
-                    name: name.clone(),
-                    loc: tokens[0].token.loc,
-                })),
+                TokenType::Name(name) => Ok(AssignmentRHS::Eval(
+                    Name::new(name.clone(), tokens[0].token.loc).into(),
+                )),
                 TokenType::Literal(val) => Ok(AssignmentRHS::Single(*val)),
                 _ => Err(SyntaxError::InvalidAssignmentRHS(tokens[0].token.loc)),
             }
         } else {
             if let Some(cmd) = self.try_parse_keyword(tokens)? {
                 match cmd {
-                    Command::Sequence(seq) => Ok(AssignmentRHS::Multiple(seq)),
+                    Command::Sequence(seq) => Ok(AssignmentRHS::Eval(seq.into())),
                 }
             } else {
                 if let Some(rhs) = self.try_parse_function(tokens)? {
-                    match rhs {
-                        // if rhs is function, we need to evaluate the function.
-                        ParsedFunction::WithNames(func) => Ok(AssignmentRHS::Function(func)),
-                        ParsedFunction::MustEval(ast) => Ok(AssignmentRHS::Expression(ast)),
-                    }
+                    Ok(AssignmentRHS::Eval(rhs.into()))
                 } else {
-                    Ok(AssignmentRHS::Expression(self.parse_expression(tokens)?))
+                    Ok(AssignmentRHS::Eval(self.parse_evaluatable(tokens)?))
                 }
             }
         }
     }
 
-    fn try_parse_param(&self, range: &[TokenInfo]) -> Result<Argument, SyntaxError> {
+    fn try_parse_arg(&self, range: &[TokenInfo]) -> Result<Argument, SyntaxError> {
         if range.len() == 1 {
             return match range[0] {
                 ti_with![TokenType::Name(ref name)] => {
                     Ok(Argument::Name(Name::new(name.clone(), range[0].token.loc)))
                 }
                 ti_with![TokenType::Literal(ref val)] => {
-                    Ok(Argument::Literal(Literal::new(*val, range[0].token.loc)))
+                    Ok(Argument::Lit(Literal::new(*val, range[0].token.loc).into()))
                 }
                 _ => Err(SyntaxError::UnexpectedToken(range[0].token.clone())),
             };
         }
+
+        // try parsing an expression
+        Ok(Argument::Eval(self.parse_evaluatable(range)?))
         // TODO(Hawo): For now, this only supports Literals and Names.
         // TODO(Hawo): This needs to support expressions and Functions in the future
-        todo!()
     }
 
     /// Parse a variable list from a list of tokens without surrounding parens
@@ -467,7 +453,6 @@ impl<'a> Parser<'a> {
     /// Output: Vec<FunctionParam>(a, b, c)
     fn try_parse_params(&self, range: &[TokenInfo]) -> Result<Vec<Argument>, SyntaxError> {
         let mut var_list = Vec::<Argument>::new();
-        let mut comma_next = true;
 
         let mut start = 0;
         let mut end = 0;
@@ -478,14 +463,14 @@ impl<'a> Parser<'a> {
             }
 
             // We have found a comma
-            var_list.push(self.try_parse_param(&range[start..end])?);
+            var_list.push(self.try_parse_arg(&range[start..end])?);
             start = end + 1;
             end = start;
         }
         if start == end {
             return Err(SyntaxError::UnexpectedToken(range[end - 1].token.clone()));
         }
-        var_list.push(self.try_parse_param(&range[start..end])?);
+        var_list.push(self.try_parse_arg(&range[start..end])?);
 
         Ok(var_list)
     }
@@ -493,7 +478,7 @@ impl<'a> Parser<'a> {
     fn try_parse_function(
         &self,
         tokens: &'a [TokenInfo],
-    ) -> Result<Option<ParsedFunction>, SyntaxError> {
+    ) -> Result<Option<FunctionNode>, SyntaxError> {
         // Minimal function signature has length 4:  Ident ( var1 )
         // var may be a name, function or literal
         if tokens.len() < 4 {
@@ -515,11 +500,11 @@ impl<'a> Parser<'a> {
                 }
 
                 let var_list = self.try_parse_params(Self::strip_parens(&tokens[1..])?)?;
-                return Ok(Some(ParsedFunction::WithNames(FunctionNode {
-                    loc: tokens[0].token.loc,
-                    name: func_name,
-                    args: var_list,
-                })));
+                return Ok(Some(FunctionNode::new(
+                    func_name,
+                    tokens[0].token.loc,
+                    var_list,
+                )));
             }
             Ok(None)
         }
@@ -540,13 +525,8 @@ impl<'a> Parser<'a> {
             }
             _ => {
                 if let Some(func) = self.try_parse_function(tokens)? {
-                    match func {
-                        ParsedFunction::WithNames(head) => Ok(AssignmentLHS::Function(head)),
-                        // Cannot assign to a function evaluation -> this is an rvalue
-                        ParsedFunction::MustEval(_) => {
-                            Err(SyntaxError::InvalidAssignmentLHS(tokens[0].token.loc))
-                        }
-                    }
+                    Ok(AssignmentLHS::Function(func))
+                    // Cannot assign to a function evaluation -> this is an rvalue
                 } else {
                     Err(SyntaxError::ExpectedFunctionDef(tokens[0].token.loc))
                 }
@@ -596,7 +576,7 @@ impl<'a> Parser<'a> {
                 if let Some(cmd) = self.try_parse_keyword(&self.token_info)? {
                     Ok(ParseResult::Command(cmd))
                 } else {
-                    Ok(ParseResult::Eval(self.parse_expression(&self.token_info)?))
+                    Ok(ParseResult::Eval(self.parse_evaluatable(&self.token_info)?))
                 }
             }
             1 => {
@@ -607,11 +587,20 @@ impl<'a> Parser<'a> {
                     .next()
                     .unwrap();
 
-                Ok(ParseResult::Definition(Assignment::from(
-                    self.parse_assignment_lhs(&self.token_info[..equals.index])?,
-                    self.parse_assignment_rhs(&self.token_info[equals.index + 1..])?,
-                    equals.token.loc,
-                )?))
+                Ok(ParseResult::Definition(
+                    Assignment::new(
+                        self.parse_assignment_lhs(&self.token_info[..equals.index])?,
+                        self.parse_assignment_rhs(&self.token_info[equals.index + 1..])?,
+                        equals.token.loc,
+                    )
+                    .map_err(|x| match x {
+                        AssignmentError::InvalidFunctionParameter(_) => todo!(),
+                        AssignmentError::ExpectedFunc(_) => todo!(),
+                        AssignmentError::ExpectedName(_) => todo!(),
+                        AssignmentError::InvalidName(_) => todo!(),
+                        AssignmentError::CannotDepend(_) => todo!(),
+                    })?,
+                ))
             } // we have an assignment expression
 
             _ => {
@@ -625,276 +614,4 @@ impl<'a> Parser<'a> {
             }
         }
     }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::tokenize::Lexer;
-
-    #[test]
-    fn add() {
-        let tokens = Lexer::new("a + b")
-            .tokenize()
-            .expect("this is a test and it should not fail in parsing");
-        let output = Parser::new(tokens)
-            .parse()
-            .expect("This should be parseable syntax");
-        assert_eq!(format!("{}", output), "(a + b)");
-    }
-
-    #[test]
-    fn redundant_plus() {
-        let tokens = Lexer::new("(+ b)")
-            .tokenize()
-            .expect("this is a test and it should not fail in parsing");
-        let output = Parser::new(tokens)
-            .parse()
-            .expect("This should be parseable syntax");
-        assert_eq!(format!("{}", output), "(+ b)");
-    }
-
-    #[test]
-    fn negate() {
-        let tokens = Lexer::new("(- b)")
-            .tokenize()
-            .expect("this is a test and it should not fail in parsing");
-        let output = Parser::new(tokens)
-            .parse()
-            .expect("This should be parseable syntax");
-        assert_eq!(format!("{}", output), "(- b)");
-    }
-
-    #[test]
-    fn only_val() {
-        let tokens = Lexer::new("(1.0)")
-            .tokenize()
-            .expect("this is a test and it should not fail in parsing");
-        let output = Parser::new(tokens)
-            .parse()
-            .expect("This should be parseable syntax");
-        assert_eq!(format!("{}", output), "1");
-    }
-
-    #[test]
-    fn only_name() {
-        let tokens = Lexer::new("(test)")
-            .tokenize()
-            .expect("this is a test and it should not fail in parsing");
-        let output = Parser::new(tokens)
-            .parse()
-            .expect("This should be parseable syntax");
-        assert_eq!(format!("{}", output), "test");
-    }
-
-    #[test]
-    fn add_and_multiply() {
-        let tokens = Lexer::new("a + b * c")
-            .tokenize()
-            .expect("this is a test and it should not fail in parsing");
-        let output = Parser::new(tokens)
-            .parse()
-            .expect("This should be parseable syntax");
-        assert_eq!(format!("{}", output), "(a + (b * c))");
-    }
-
-    #[test]
-    fn add_and_multiply_parens() {
-        let tokens = Lexer::new("(a + b) * c")
-            .tokenize()
-            .expect("this is a test and it should not fail in parsing");
-        let output = Parser::new(tokens)
-            .parse()
-            .expect("This should be parseable syntax");
-        assert_eq!(format!("{}", output), "((a + b) * c)");
-    }
-
-    #[test]
-    fn double_add() {
-        let tokens = Lexer::new("a + b + c")
-            .tokenize()
-            .expect("this is a test and it should not fail in parsing");
-        let output = Parser::new(tokens)
-            .parse()
-            .expect("This should be parseable syntax");
-        assert_eq!(format!("{}", output), "(a + (b + c))");
-    }
-
-    #[test]
-    fn add_2_fracs() {
-        let tokens = Lexer::new("a / 2.0 - c / 3.0")
-            .tokenize()
-            .expect("this is a test and it should not fail in parsing");
-        let output = Parser::new(tokens)
-            .parse()
-            .expect("This should be parseable syntax");
-        assert_eq!(format!("{}", output), "((a / 2) - (c / 3))");
-    }
-
-    #[test]
-    fn power() {
-        let tokens = Lexer::new("a^b")
-            .tokenize()
-            .expect("this is a test and it should not fail in parsing");
-        let output = Parser::new(tokens)
-            .parse()
-            .expect("This should be parseable syntax");
-        assert_eq!(format!("{}", output), "(a ^ b)");
-    }
-
-    #[test]
-    fn power_add() {
-        let tokens = Lexer::new("a^(b + c)")
-            .tokenize()
-            .expect("this is a test and it should not fail in parsing");
-        let output = Parser::new(tokens)
-            .parse()
-            .expect("This should be parseable syntax");
-        assert_eq!(format!("{}", output), "(a ^ (b + c))");
-    }
-
-    #[test]
-    fn exponent_2_fracs() {
-        let tokens = Lexer::new("(a / 2.0) ^ (c / 3.0)")
-            .tokenize()
-            .expect("this is a test and it should not fail in parsing");
-        let output = Parser::new(tokens)
-            .parse()
-            .expect("This should be parseable syntax");
-        assert_eq!(format!("{}", output), "((a / 2) ^ (c / 3))");
-    }
-
-    #[test]
-    fn all_ops() {
-        let tokens = Lexer::new("a + b - c * d / e ^ f")
-            .tokenize()
-            .expect("this is a test and it should not fail in parsing");
-        let output = Parser::new(tokens)
-            .parse()
-            .expect("This should be parseable syntax");
-        assert_eq!(format!("{}", output), "(a + (b - (c * (d / (e ^ f)))))");
-    }
-
-    #[test]
-    fn quadratic_formula_plus() {
-        let tokens = Lexer::new("-p/2 + ((p/2)^2 - q)^(1 / 2)")
-            .tokenize()
-            .expect("this is a test and it should not fail in parsing");
-        let output = Parser::new(tokens)
-            .parse()
-            .expect("This should be parseable syntax");
-        assert_eq!(
-            format!("{}", output),
-            "(((- p) / 2) + ((((p / 2) ^ 2) - q) ^ (1 / 2)))"
-        );
-    }
-
-    #[test]
-    fn assignment_func() {
-        let tokens = Lexer::new("f(p, q) = -p/2 + ((p/2)^2 - q)^(1 / 2)")
-            .tokenize()
-            .expect("this is a test and it should not fail in parsing");
-        let output = Parser::new(tokens)
-            .parse()
-            .expect("This should be parseable syntax");
-        assert_eq!(
-            format!("{}", output),
-            "f(p, q) = (((- p) / 2) + ((((p / 2) ^ 2) - q) ^ (1 / 2)))"
-        );
-    }
-
-    #[test]
-    fn assignment_simple() {
-        let tokens = Lexer::new("x = 1")
-            .tokenize()
-            .expect("this is a test and it should not fail in parsing");
-        let output = Parser::new(tokens)
-            .parse()
-            .expect("This should be parseable syntax");
-        assert_eq!(format!("{}", output), "x = 1");
-    }
-
-    #[test]
-    fn assignment_seq() {
-        let tokens = Lexer::new("x = seq(0, 1, 10)")
-            .tokenize()
-            .expect("this is a test and it should not fail in parsing");
-        let output = Parser::new(tokens)
-            .parse()
-            .expect("This should be parseable syntax");
-        assert_eq!(format!("{}", output), "x = seq(0, 1, 10)");
-    }
-
-    #[test]
-    fn seq() {
-        let tokens = Lexer::new("seq(0, 1, 10)")
-            .tokenize()
-            .expect("this is a test and it should not fail in parsing");
-        let output = Parser::new(tokens)
-            .parse()
-            .expect("This should be parseable syntax");
-        assert_eq!(format!("{}", output), "seq(0, 1, 10)");
-    }
-
-    #[test]
-    fn func_3_vars() {
-        let tokens = Lexer::new("func(0, 1, 10)")
-            .tokenize()
-            .expect("this is a test and it should not fail in parsing");
-        let output = Parser::new(tokens)
-            .parse()
-            .expect("This should be parseable syntax");
-        assert_eq!(format!("{}", output), "func(0, 1, 10)");
-    }
-
-    #[test]
-    fn func_1_var() {
-        let tokens = Lexer::new("func(0)")
-            .tokenize()
-            .expect("this is a test and it should not fail in parsing");
-        let output = Parser::new(tokens)
-            .parse()
-            .expect("This should be parseable syntax");
-        assert_eq!(format!("{}", output), "func(0)");
-    }
-
-    #[test]
-    fn seq_in_expr() {
-        let tokens = Lexer::new("1 + seq(0, 1, 10)")
-            .tokenize()
-            .expect("this is a test and it should not fail in parsing");
-        println!("{:?}", tokens);
-        let output = Parser::new(tokens)
-            .parse()
-            .expect("This should be parseable syntax");
-        assert_eq!(format!("{}", output), "(1 + seq(0, 1, 10))");
-    }
-
-    #[test]
-    fn seq_in_expr_assignment() {
-        let tokens = Lexer::new("x = 1 + seq(0, 1, 10)")
-            .tokenize()
-            .expect("this is a test and it should not fail in parsing");
-        println!("{:?}", tokens);
-        let output = Parser::new(tokens)
-            .parse()
-            .expect("This should be parseable syntax");
-        assert_eq!(format!("{}", output), "x = (1 + seq(0, 1, 10))");
-    }
-
-    #[test]
-    fn seq_in_rhs_assignment() {
-        let tokens = Lexer::new("f(x) = seq(1, x, 10)")
-            .tokenize()
-            .expect("this is a test and it should not fail in parsing");
-        println!("{:?}", tokens);
-        let output = Parser::new(tokens)
-            .parse()
-            .expect("This should be parseable syntax");
-        assert_eq!(format!("{}", output), "func(0)");
-    }
-
-    // TODO(Hawo): Need More Test Cases for Expressions. These nested brackets are tricky
-    // TODO(Hawo): I may need to work on selection of neighboring scopes, but for now it's fine
-    // TODO(Hawo): Write more Test Cases for Functions
 }

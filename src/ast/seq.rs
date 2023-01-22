@@ -1,9 +1,11 @@
-use crate::ast::{Eval, EvalASTNode, EvalData, KnownValues, NameError};
+use crate::{
+    ast::{Eval, EvalASTNode, EvalData, EvalError, Evaluatable, KnownValues},
+};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Seq {
-    start: f64,
-    end: f64,
+    start: Evaluatable,
+    end: Evaluatable,
     n: usize,
 }
 
@@ -25,44 +27,44 @@ impl std::fmt::Display for OutOfBounds {
 }
 
 impl Seq {
-    pub fn new(start: f64, end: f64, n: usize) -> Self {
-        Self { start, end, n }
-    }
-
-    pub fn all_vals(&self) -> Vec<f64> {
-        (0..self.n)
-            .map(|i| self.start + (self.end - self.start) / (self.n as f64 - 1.0) * i as f64)
-            .collect()
+    pub fn new(start: Evaluatable, end: Evaluatable, n: usize) -> Self {
+        Self {
+            start: start.into(),
+            end: end.into(),
+            n,
+        }
     }
 
     pub fn size(&self) -> usize {
         self.n
-    }
-
-    pub fn at(&self, pos: usize) -> Result<f64, OutOfBounds> {
-        if pos < self.n {
-            Err(OutOfBounds {
-                maxval: self.n,
-                minval: 0,
-                actual: pos,
-            })
-        } else {
-            Ok(self.start + (self.end - self.start) / (self.n as f64 - 1.0) * pos as f64)
-        }
     }
 }
 
 const SEQ_VAR_NAME: &str = "seq_idx";
 
 impl EvalASTNode for Seq {
-    fn eval<'a>(&'a self, known_values: &'a KnownValues) -> Result<Eval<'a>, NameError> {
+    fn eval<'a>(&'a self, known_values: &'a KnownValues) -> Result<Eval, EvalError> {
+        let start = if let EvalData::Single(val) = self.start.eval(known_values)?.result {
+            val
+        } else {
+            // TODO(Hawo): Improve these errors
+            return Err(EvalError::InvalidArgumentType(format!(
+                "{}",
+                self.start.ast
+            )));
+        };
+        let end = if let EvalData::Single(val) = self.end.eval(known_values)?.result {
+            val
+        } else {
+            return Err(EvalError::InvalidArgumentType(format!("{}", self.end.ast)));
+        };
         let vals = (0..self.n)
-            .map(|i| self.start + (self.end - self.start) / (self.n as f64 - 1.0) * i as f64)
+            .map(|i| start + (end - start) / (self.n as f64 - 1.0) * i as f64)
             .collect();
         Ok(Eval::new(
             EvalData::Multiple(vals),
             super::EvalInput {
-                name: SEQ_VAR_NAME,
+                name: SEQ_VAR_NAME.to_string(),
                 value: EvalData::None,
             },
         ))

@@ -323,4 +323,11 @@ mod tests {
         let expected = vec![TokenType::Literal(1.0), TokenType::Comma];
         assert_eq!(parse_unwrap_to_types("1.0,"), expected);
     }
+
+    #[test]
+    fn seq_in_rhs_function_call() {
+        let _ = Lexer::new("f(seq(0, 1, 10))")
+            .tokenize()
+            .expect("this is a test and it should not fail in parsing");
+    }
 }
